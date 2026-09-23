@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Kessel Sabacc</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">KESSEL <span>SABACC</span></div>
+    <div class="top-actions">
+      <span id="roomBadge" class="room-badge hidden"></span>
+      <button id="rulesBtn" class="ghost">룰 보기</button>
+    </div>
+  </header>
+
+  <!-- 홈 -->
+  <main id="home" class="screen">
+    <section class="panel home-panel">
+      <h1>카지노 테이블에 앉기</h1>
+      <p class="muted">3~6명이 함께하는 실시간 Kessel Sabacc. 방을 만들고 코드를 친구에게 공유하세요.</p>
+      <label>닉네임<input id="nameInput" maxlength="16" placeholder="예: 한 솔로" /></label>
+      <div class="home-grid">
+        <div class="box">
+          <h2>새 방 만들기</h2>
+          <label>시작 칩<input id="chipsInput" type="number" min="2" max="20" value="8" /></label>
+          <button id="createBtn" class="primary">방 만들기</button>
+        </div>
+        <div class="box">
+          <h2>방 참가</h2>
+          <label>방 코드<input id="codeInput" maxlength="4" placeholder="ABCD" /></label>
+          <button id="joinBtn">참가하기</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- 로비 -->
+  <main id="lobby" class="screen hidden">
+    <section class="panel">
+      <h1>대기실</h1>
+      <p>방 코드 <strong id="lobbyCode" class="code"></strong>
+        <button id="copyLinkBtn" class="ghost small">초대 링크 복사</button></p>
+      <ul id="lobbyPlayers" class="lobby-list"></ul>
+      <p id="lobbyHint" class="muted"></p>
+      <div class="row">
+        <button id="startBtn" class="primary">게임 시작</button>
+        <button id="leaveBtn" class="ghost">나가기</button>
+      </div>
+    </section>
+  </main>
+
+  <!-- 게임 -->
+  <main id="table" class="screen hidden">
+    <div class="table-layout">
+      <section class="felt">
+        <div id="status" class="status"></div>
+        <div id="opponents" class="opponents"></div>
+
+        <div class="center">
+          <div class="pile-group sand">
+            <button class="pile deck" data-suit="sand" data-from="deck"><span class="pile-label">샌드 덱</span><span class="count" id="sandDeckCount"></span></button>
+            <button class="pile discard" data-suit="sand" data-from="discard" id="sandDiscard"></button>
+          </div>
+          <div class="pot" id="pot"></div>
+          <div class="pile-group blood">
+            <button class="pile discard" data-suit="blood" data-from="discard" id="bloodDiscard"></button>
+            <button class="pile deck" data-suit="blood" data-from="deck"><span class="pile-label">블러드 덱</span><span class="count" id="bloodDeckCount"></span></button>
+          </div>
+        </div>
+
+        <div class="me">
+          <div id="myInfo" class="my-info"></div>
+          <div id="myHand" class="my-hand"></div>
+          <div id="actions" class="actions"></div>
+        </div>
+      </section>
+
+      <aside class="side">
+        <div class="side-block">
+          <h3>로그</h3>
+          <ul id="log" class="log"></ul>
+        </div>
+        <div class="side-block chat">
+          <h3>채팅</h3>
+          <ul id="chat" class="log"></ul>
+          <form id="chatForm"><input id="chatInput" maxlength="200" placeholder="메시지…" /><button>전송</button></form>
+        </div>
+      </aside>
+    </div>
+  </main>
+
+  <!-- 결과 -->
+  <div id="resultModal" class="modal hidden">
+    <div class="modal-body">
+      <h2 id="resultTitle"></h2>
+      <table class="result-table"><thead><tr><th>플레이어</th><th>핸드</th><th>결과</th><th>칩</th></tr></thead><tbody id="resultRows"></tbody></table>
+      <div class="row" id="resultActions"></div>
+    </div>
+  </div>
+
+  <!-- 룰 -->
+  <div id="rulesModal" class="modal hidden">
+    <div class="modal-body rules">
+      <button class="close" data-close>&times;</button>
+      <h2>Kessel Sabacc 규칙</h2>
+      <h3>구성</h3>
+      <ul>
+        <li><b class="sand-t">샌드</b>·<b class="blood-t">블러드</b> 두 벌, 각 22장: 숫자 1~6 × 3장, 임포스터 3장, 사일롭 1장</li>
+        <li>각자 샌드 1장 + 블러드 1장을 손에 듭니다.</li>
+      </ul>
+      <h3>목표</h3>
+      <p>두 카드의 값을 최대한 <b>같게</b> 만드는 것. 두 값이 같으면 <b>사박</b>.</p>
+      <h3>진행</h3>
+      <ul>
+        <li>한 라운드는 3턴. 자기 차례에 <b>스탠드</b>(무료) 또는 <b>드로우</b>(1칩)를 선택합니다.</li>
+        <li>드로우: 샌드/블러드 덱 또는 버림 더미 중 한 곳에서 1장을 가져온 뒤, 같은 계열 카드 중 하나를 버립니다.</li>
+        <li>3턴 뒤 모두 카드를 공개합니다.</li>
+      </ul>
+      <h3>특수 카드</h3>
+      <ul>
+        <li><b>임포스터</b>: 공개 시 주사위 2개를 굴려 그중 하나를 카드 값으로 선택.</li>
+        <li><b>사일롭</b>: 다른 카드와 같은 값이 됨(= 사박). 사일롭 2장은 <b>퓨어 사박</b>.</li>
+      </ul>
+      <h3>족보 (강한 순)</h3>
+      <ol>
+        <li>퓨어 사박 (사일롭 + 사일롭)</li>
+        <li>사박 1/1 (프라임) → 2/2 → … → 6/6 (낮은 숫자일수록 강함)</li>
+        <li>사박이 아니면 차이가 작을수록 강함, 차이가 같으면 합이 작은 쪽</li>
+      </ol>
+      <h3>정산</h3>
+      <ul>
+        <li>승자(동점 포함)는 이번 라운드에 드로우로 쓴 칩을 돌려받습니다.</li>
+        <li>패자는 쓴 칩을 잃고, 추가 벌금: 사박이면 1칩, 아니면 두 카드의 차이만큼.</li>
+        <li>칩이 0이 되면 탈락. 마지막까지 칩을 가진 한 명이 최종 승자.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+  <script src="app.js"></script>
+</body>
+</html>
