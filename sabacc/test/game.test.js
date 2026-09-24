@@ -5,56 +5,92 @@ const assert = require('node:assert/strict');
 const R = require('../src/rules');
 const { Game, GameError } = require('../src/game');
 
-const num = (suit, value) => ({ id: `${suit}${value}`, suit, kind: 'number', value });
-const imp = (suit) => ({ id: `${suit}i`, suit, kind: 'impostor', value: null });
-const syl = (suit) => ({ id: `${suit}s`, suit, kind: 'sylop', value: 0 });
-const hand = (sand, blood) => ({ sand, blood });
+let uid = 0;
+const c = (v) => (v === 0
+  ? { id: `s${uid++}`, stave: null, value: 0, sylop: true }
+  : { id: `c${uid++}`, stave: 'circle', value: v, sylop: false });
+const H = (...vals) => vals.map(c);
+const key = (...vals) => R.evaluateHand(H(...vals)).key;
 
 function seeded(seed = 1) {
   return () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
 }
 
 function newGame(n = 3, opts = {}) {
-  const g = new Game({ rng: seeded(42), ...opts });
+  const g = new Game({ rng: seeded(7), ...opts });
   for (let i = 0; i < n; i++) g.addPlayer(`p${i}`, `P${i}`);
   g.start();
   return g;
 }
 
-test('덱 구성: 22장, 1~6 각 3장, 임포스터 3장, 사일롭 1장', () => {
-  const d = R.buildDeck('sand');
-  assert.equal(d.length, 22);
-  for (let v = 1; v <= 6; v++) assert.equal(d.filter((c) => c.value === v && c.kind === 'number').length, 3);
-  assert.equal(d.filter((c) => c.kind === 'impostor').length, 3);
-  assert.equal(d.filter((c) => c.kind === 'sylop').length, 1);
+// 드로우 페이즈 전원 스탠드
+function allStand(g) {
+  while (g.phase === 'draw') g.drawAction(g.currentPlayerId(), 'stand');
+}
+// 베팅 페이즈 전원 체크
+function allCheck(g) {
+  while (g.phase === 'betting') g.betAction(g.currentPlayerId(), 'check');
+}
+// 주사위를 항상 다른 문양으로 (시프트 없음)
+function noShift(g) {
+  let i = 0;
+  const base = g.rng;
+  g.rng = () => { i += 1; return i % 2 ? 0.01 : 0.5; };
+  return () => { g.rng = base; };
+}
+
+test('덱 구성: 62장 = 3 스테이브 × (+1~+10, −1~−10) + 사일롭 2장', () => {
+  const d = R.buildDeck();
+  assert.equal(d.length, 62);
+  for (const s of R.STAVES) {
+    assert.equal(d.filter((x) => x.stave === s && x.value > 0).length, 10);
+    assert.equal(d.filter((x) => x.stave === s && x.value < 0).length, 10);
+  }
+  assert.equal(d.filter((x) => x.sylop).length, 2);
+  assert.equal(R.sumOf(d), 0);
+  assert.equal(new Set(d.map((x) => x.id)).size, 62);
 });
 
-test('족보: 퓨어 사박 > 프라임 사박 > 높은 사박 > 차이', () => {
-  const pure = R.evaluateHand(hand(syl('sand'), syl('blood')));
-  const prime = R.evaluateHand(hand(num('sand', 1), num('blood', 1)));
-  const six = R.evaluateHand(hand(num('sand', 6), num('blood', 6)));
-  const diff1 = R.evaluateHand(hand(num('sand', 2), num('blood', 3)));
-  const diff1High = R.evaluateHand(hand(num('sand', 5), num('blood', 6)));
-  const diff3 = R.evaluateHand(hand(num('sand', 1), num('blood', 4)));
-  const ordered = [pure, prime, six, diff1, diff1High, diff3];
-  for (let i = 0; i < ordered.length - 1; i++) {
-    assert.ok(R.compareRank(ordered[i].rank, ordered[i + 1].rank) < 0, `${ordered[i].label} > ${ordered[i + 1].label}`);
+test('족보 판정: 각 족보 예시', () => {
+  assert.equal(key(0, 0), 'pure');
+  assert.equal(key(10, 10, 0, -10, -10), 'full');
+  assert.equal(key(-5, -5, 5, 5, 0), 'fleet');
+  assert.equal(key(4, -4, 0), 'yeehaa');
+  assert.equal(key(2, 2, -4, 0), 'yeehaa');
+  assert.equal(key(2, 2, 2, -3, -3), 'rhylet');
+  assert.equal(key(-6, -6, 6, 6), 'squadron');
+  assert.equal(key(10, -1, -2, -3, -4), 'geewhiz');
+  assert.equal(key(-10, 1, 2, 3, 4), 'geewhiz');
+  assert.equal(key(1, 4, -2, -3), 'khyron');
+  assert.equal(key(3, 3, 3, -9), 'bantha');
+  assert.equal(key(2, 2, -5, -5, 6), 'ruleOfTwo');
+  assert.equal(key(7, -7), 'sabacc');
+  assert.equal(key(5, -2), 'nulrhek');
+});
+
+test('족보 순서: 퓨어 > 풀 > 플릿 > 이-하 > 라일렛 > 스쿼드런 > 지 위즈 > 카이론 > 밴서스 > 룰 오브 투 > 사박 > 널렉', () => {
+  const hands = [
+    H(0, 0), H(10, 10, 0, -10, -10), H(-5, -5, 5, 5, 0), H(4, -4, 0), H(2, 2, 2, -3, -3),
+    H(-6, -6, 6, 6), H(10, -1, -2, -3, -4), H(1, 4, -2, -3), H(3, 3, 3, -9), H(2, 2, -5, -5, 6),
+    H(7, -7), H(1, -2),
+  ].map((h) => R.evaluateHand(h));
+  for (let i = 0; i < hands.length - 1; i++) {
+    assert.ok(R.compareRank(hands[i].rank, hands[i + 1].rank) < 0, `${hands[i].key} > ${hands[i + 1].key}`);
   }
 });
 
-test('사일롭은 다른 카드 값을 따르고, 임포스터는 선택한 주사위 값', () => {
-  const s = R.evaluateHand(hand(syl('sand'), num('blood', 4)));
-  assert.equal(s.type, 'sabacc');
-  assert.equal(s.sand, 4);
-  const i = R.evaluateHand(hand(imp('sand'), num('blood', 2)), { sand: 5 });
-  assert.equal(i.diff, 3);
-  const si = R.evaluateHand(hand(imp('sand'), syl('blood')), { sand: 3 });
-  assert.deepEqual([si.type, si.blood], ['sabacc', 3]);
+test('사박 동률: 카드 수 많은 쪽 → 양수 합 큰 쪽 → 가장 높은 양수 카드', () => {
+  const ev = (...v) => R.evaluateHand(H(...v)).rank;
+  assert.ok(R.compareRank(ev(5, -2, -3), ev(5, -5)) < 0);
+  assert.ok(R.compareRank(ev(9, -9), ev(4, -4)) < 0);
+  assert.ok(R.compareRank(ev(9, 1, -5, -5), ev(6, 4, -9, -1)) < 0);
 });
 
-test('벌금: 사박으로 지면 1칩, 아니면 차이만큼', () => {
-  assert.equal(R.penaltyFor(R.evaluateHand(hand(num('sand', 3), num('blood', 3)))), 1);
-  assert.equal(R.penaltyFor(R.evaluateHand(hand(num('sand', 1), num('blood', 5)))), 4);
+test('널렉: 0에 가까울수록, 같으면 양수가 음수보다 우선', () => {
+  const ev = (...v) => R.evaluateHand(H(...v)).rank;
+  assert.ok(R.compareRank(ev(1, -2), ev(5, -3)) < 0); // -1 vs +2
+  assert.ok(R.compareRank(ev(3, -2), ev(2, -3)) < 0); // +1 vs -1
+  assert.ok(R.compareRank(ev(7, -3, -3), ev(3, -2)) < 0); // +1, 3장 vs 2장
 });
 
 test('3~6명 제한', () => {
@@ -65,142 +101,167 @@ test('3~6명 제한', () => {
   assert.throws(() => g.addPlayer('y', 'Y'), GameError);
 });
 
-test('시작 시 각자 샌드 1장+블러드 1장, 버림 더미 각 1장', () => {
-  const g = newGame(4);
+test('핸드 시작: 참가비(핸드 팟 2 + 사박 팟 1), 각자 2장, 공개 카드 1장', () => {
+  const g = newGame(4, { startCredits: 50 });
+  assert.equal(g.pots.hand, 8);
+  assert.equal(g.pots.sabacc, 4);
   for (const p of g.players) {
-    assert.equal(p.hand.sand.suit, 'sand');
-    assert.equal(p.hand.blood.suit, 'blood');
-    assert.equal(p.chips, R.DEFAULT_START_CHIPS);
+    assert.equal(p.hand.length, 2);
+    assert.equal(p.credits, 47);
   }
-  assert.equal(g.discards.sand.length, 1);
-  assert.equal(g.decks.sand.length, 22 - 4 - 1);
+  assert.equal(g.discard.length, 1);
+  assert.equal(g.deck.length, 62 - 8 - 1);
+  assert.equal(g.phase, 'draw');
 });
 
-test('차례가 아니면 행동 불가, 드로우는 1칩 소모 후 같은 계열 1장 버림', () => {
+test('드로우 4종: Buy Draw/Face-Up은 장수 +1·비용, SWAP은 장수 유지', () => {
   const g = newGame(3);
-  const cur = g.currentPlayerId();
-  const other = g.players.find((p) => p.id !== cur).id;
-  assert.throws(() => g.stand(other), GameError);
+  let id = g.currentPlayerId();
+  let p = g.get(id);
+  const before = p.credits;
+  g.drawAction(id, 'buyDraw');
+  assert.equal(p.hand.length, 3);
+  assert.equal(p.credits, before - R.DRAW_COSTS.buyDraw);
 
-  const p = g.get(cur);
-  const discardTop = g.discards.blood.at(-1);
-  g.draw(cur, { suit: 'blood', from: 'discard' });
-  assert.equal(p.chips, R.DEFAULT_START_CHIPS - 1);
-  assert.equal(p.invested, 1);
-  assert.equal(p.pending, discardTop);
-  assert.throws(() => g.stand(cur), GameError);
-  const old = p.hand.blood;
-  g.keep(cur, 'drawn');
-  assert.equal(p.hand.blood, discardTop);
-  assert.equal(g.discards.blood.at(-1), old);
-  assert.notEqual(g.currentPlayerId(), cur);
+  id = g.currentPlayerId(); p = g.get(id);
+  const top = g.discard.at(-1);
+  const out = p.hand[0];
+  g.drawAction(id, 'swapFaceUp', out.id);
+  assert.equal(p.hand.length, 2);
+  assert.ok(p.hand.includes(top));
+  assert.equal(g.discard.at(-1), out);
+
+  id = g.currentPlayerId(); p = g.get(id);
+  g.drawAction(id, 'swapDraw');
+  assert.ok(p.pending);
+  assert.throws(() => g.drawAction(id, 'stand'), GameError);
+  const drawn = p.pending;
+  g.discardPending(id, p.hand[1].id);
+  assert.equal(p.hand.length, 2);
+  assert.ok(p.hand.includes(drawn));
+  assert.equal(g.phase, 'betting');
 });
 
-test('3턴 후 공개·정산, 승자는 베팅 회수, 패자는 베팅 손실 + 벌금', () => {
+test('손패 최대 장수 초과 불가', () => {
   const g = newGame(3);
-  // 결과를 고정하기 위해 손패를 직접 지정
-  const [a, b, c] = g.order.map((id) => g.get(id));
-  a.hand = hand(num('sand', 2), num('blood', 2)); // 사박 2/2
-  b.hand = hand(num('sand', 1), num('blood', 4)); // 차이 3
-  c.hand = hand(num('sand', 3), num('blood', 3)); // 사박 3/3
-  for (let t = 0; t < R.TURNS_PER_ROUND; t++) {
-    for (const p of [a, b, c]) {
-      if (t === 0) {
-        g.draw(p.id, { suit: 'sand', from: 'deck' });
-        g.keep(p.id, 'hand');
-      } else {
-        g.stand(p.id);
-      }
-    }
-  }
-  assert.equal(g.phase, 'roundEnd');
-  const start = R.DEFAULT_START_CHIPS;
-  assert.equal(a.chips, start); // 1칩 썼지만 회수
-  assert.equal(b.chips, start - 1 - 3);
-  assert.equal(c.chips, start - 1 - 1);
-  assert.ok(g.lastResult.rows.find((r) => r.id === a.id).winner);
+  const id = g.currentPlayerId();
+  g.get(id).hand = H(1, 2, 3, 4, 5);
+  assert.throws(() => g.drawAction(id, 'buyDraw'), GameError);
 });
 
-test('동점이면 모두 승자', () => {
+test('베팅: 체크 불가 시 콜/레이즈/폴드, 레이즈 후 다시 한 바퀴', () => {
   const g = newGame(3);
-  const [a, b, c] = g.order.map((id) => g.get(id));
-  a.hand = hand(num('sand', 1), num('blood', 1));
-  b.hand = hand(num('sand', 1), num('blood', 1));
-  c.hand = hand(num('sand', 1), num('blood', 6));
-  for (let t = 0; t < R.TURNS_PER_ROUND; t++) for (const p of [a, b, c]) g.stand(p.id);
-  const winners = g.lastResult.rows.filter((r) => r.winner).map((r) => r.id);
-  assert.deepEqual(winners.sort(), [a.id, b.id].sort());
-  assert.equal(c.chips, R.DEFAULT_START_CHIPS - 5);
+  allStand(g);
+  const [a, b, c2] = g.betting.queue.map((id) => g.get(id));
+  const pot = g.pots.hand;
+  g.betAction(a.id, 'bet', 3);
+  assert.throws(() => g.betAction(b.id, 'check'), GameError);
+  g.betAction(b.id, 'raise', 5);
+  g.betAction(c2.id, 'call');
+  assert.equal(g.currentPlayerId(), a.id);
+  g.betAction(a.id, 'call');
+  assert.equal(g.pots.hand, pot + 15);
+  assert.equal(g.phase, 'draw');
+  assert.equal(g.round, 2);
 });
 
-test('임포스터: 공개 시 주사위 선택을 기다린 뒤 정산', () => {
+test('베팅 한도 = 남은 플레이어 최소 보유 크레딧', () => {
   const g = newGame(3);
-  const [a, b, c] = g.order.map((id) => g.get(id));
-  a.hand = hand(imp('sand'), num('blood', 4));
-  b.hand = hand(num('sand', 1), num('blood', 6));
-  c.hand = hand(num('sand', 2), num('blood', 6));
-  g.rng = (() => { const seq = [0.0, 0.6]; let i = 0; return () => seq[i++ % seq.length]; })(); // 주사위 1, 4
-  for (let t = 0; t < R.TURNS_PER_ROUND; t++) for (const p of [a, b, c]) g.stand(p.id);
-  assert.equal(g.phase, 'impostor');
-  assert.deepEqual(a.impostor.sand.dice, [1, 4]);
-  g.chooseImpostor(a.id, 'sand', 1);
-  assert.equal(g.phase, 'roundEnd');
-  assert.ok(g.lastResult.rows.find((r) => r.id === a.id).winner);
+  allStand(g);
+  const cap = g.betting.cap;
+  const id = g.currentPlayerId();
+  assert.throws(() => g.betAction(id, 'bet', cap + 1), GameError);
 });
 
-test('칩이 0이 되면 탈락, 마지막 1명이 남으면 게임 종료', () => {
-  const g = newGame(3, { startChips: 2 });
-  const [a, b, c] = g.order.map((id) => g.get(id));
-  a.hand = hand(syl('sand'), syl('blood'));
-  b.hand = hand(num('sand', 1), num('blood', 6));
-  c.hand = hand(num('sand', 1), num('blood', 5));
-  for (let t = 0; t < R.TURNS_PER_ROUND; t++) for (const p of [a, b, c]) g.stand(p.id);
+test('나머지 전원 폴드 시 핸드 팟만 획득, 사박 팟은 이월', () => {
+  const g = newGame(3);
+  allStand(g);
+  const [a, b, c2] = g.betting.queue.map((id) => g.get(id));
+  const handPot = g.pots.hand; const sab = g.pots.sabacc;
+  const before = c2.credits;
+  g.betAction(a.id, 'fold');
+  g.betAction(b.id, 'fold');
+  assert.equal(g.phase, 'handEnd');
+  assert.equal(c2.credits, before + handPot);
+  assert.equal(g.pots.sabacc, sab);
+});
+
+test('스파이크: 같은 문양이면 사박 시프트(장수 유지하며 새 카드)', () => {
+  const g = newGame(3);
+  allStand(g);
+  const hands = g.inHand().map((p) => p.hand.map((x) => x.id).join());
+  g.rng = () => 0.01; // 두 주사위 모두 첫 번째 문양
+  allCheck(g);
+  assert.equal(g.lastDice.shift, true);
+  g.inHand().forEach((p, i) => {
+    assert.equal(p.hand.length, 2);
+    assert.notEqual(p.hand.map((x) => x.id).join(), hands[i]);
+  });
+});
+
+test('3라운드 후 쇼다운: 합계 0 승자는 핸드 팟 + 사박 팟', () => {
+  const g = newGame(3);
+  const restore = noShift(g);
+  const [a, b, c2] = g.order.map((id) => g.get(id));
+  for (let r = 0; r < 3; r++) { allStand(g); allCheck(g); }
+  assert.equal(g.phase, 'handEnd');
+  restore();
+
+  // 결과를 고정한 핸드로 한 번 더
+  g.nextHand();
+  const r2 = noShift(g);
+  a.hand = H(3, -3); b.hand = H(5, -2); c2.hand = H(9, -1);
+  for (let r = 0; r < 3; r++) { allStand(g); allCheck(g); }
+  r2();
+  const res = g.lastResult;
+  const wa = res.rows.find((x) => x.id === a.id);
+  assert.ok(wa.winner);
+  assert.equal(res.sabaccPot > 0, true);
+  assert.equal(g.pots.sabacc, 0);
+  assert.equal(wa.won, res.handPot + res.sabaccPot);
+});
+
+test('0이 아닌 승자는 핸드 팟만, 사박 팟은 이월', () => {
+  const g = newGame(3);
+  const r = noShift(g);
+  const [a, b, c2] = g.order.map((id) => g.get(id));
+  a.hand = H(3, -2); b.hand = H(5, -2); c2.hand = H(9, -1);
+  const sab = g.pots.sabacc;
+  for (let i = 0; i < 3; i++) { allStand(g); allCheck(g); }
+  r();
+  assert.ok(g.lastResult.rows.find((x) => x.id === a.id).winner);
+  assert.equal(g.pots.sabacc, sab);
+});
+
+test('참가비를 낼 수 없으면 탈락, 1명 남으면 게임 종료', () => {
+  const g = newGame(3, { startCredits: 10 });
+  const r = noShift(g);
+  const [a, b, c2] = g.order.map((id) => g.get(id));
+  a.hand = H(0, 0); b.hand = H(5, -2); c2.hand = H(9, -1);
+  b.credits = 0; c2.credits = 2;
+  for (let i = 0; i < 3; i++) { allStand(g); allCheck(g); }
+  r();
   assert.equal(g.phase, 'gameOver');
   assert.equal(g.winnerId, a.id);
-  assert.ok(b.eliminated && c.eliminated);
 });
 
-test('탈락자는 다음 라운드에서 제외되고 딜러가 순환', () => {
-  const g = newGame(4, { startChips: 3 });
-  const ids = [...g.order];
-  const [a, b, c, d] = ids.map((id) => g.get(id));
-  a.hand = hand(num('sand', 1), num('blood', 1));
-  b.hand = hand(num('sand', 2), num('blood', 2));
-  c.hand = hand(num('sand', 1), num('blood', 6)); // 벌금 5 → 탈락
-  d.hand = hand(num('sand', 3), num('blood', 3));
-  const dealer = g.dealerIdx;
-  for (let t = 0; t < R.TURNS_PER_ROUND; t++) for (const p of [a, b, c, d]) g.stand(p.id);
-  assert.equal(g.phase, 'roundEnd');
-  assert.ok(c.eliminated);
-  g.nextRound();
-  assert.equal(g.order.length, 3);
-  assert.ok(!g.order.includes(c.id));
-  assert.notEqual(g.dealerIdx, dealer);
-  assert.equal(c.hand, null);
-});
-
-test('다른 사람 손패는 공개 전까지 숨김', () => {
+test('다른 사람 손패는 숨김(장수만 공개)', () => {
   const g = newGame(3);
   const view = g.viewFor('p0');
   for (const p of view.players) {
     if (p.id === 'p0') assert.ok(p.hand);
-    else assert.equal(p.hand, null);
+    else { assert.equal(p.hand, null); assert.equal(p.cardCount, 2); }
   }
 });
 
-test('자동 행동: 드로우 중이면 새 카드 버리고 넘김', () => {
+test('자동 행동: 드로우=스탠드, 베팅 중 콜 필요하면 폴드', () => {
   const g = newGame(3);
-  const cur = g.currentPlayerId();
-  const before = g.get(cur).hand.sand;
-  g.draw(cur, { suit: 'sand', from: 'deck' });
-  g.autoAct(cur);
-  assert.equal(g.get(cur).hand.sand, before);
-  assert.notEqual(g.currentPlayerId(), cur);
-});
-
-test('칩이 없으면 드로우 불가', () => {
-  const g = newGame(3, { startChips: 2 });
-  const cur = g.currentPlayerId();
-  g.get(cur).chips = 0;
-  assert.throws(() => g.draw(cur, { suit: 'sand', from: 'deck' }), GameError);
+  const id = g.currentPlayerId();
+  g.autoAct(id);
+  assert.notEqual(g.currentPlayerId(), id);
+  allStand(g);
+  const [a, b] = g.betting.queue;
+  g.betAction(a, 'bet', 1);
+  g.autoAct(b);
+  assert.ok(g.get(b).folded);
 });

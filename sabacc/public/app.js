@@ -2,17 +2,25 @@
 
 (() => {
   const $ = (id) => document.getElementById(id);
-  const SUIT_NAME = { sand: '샌드', blood: '블러드' };
   const store = {
     get(k) { try { return localStorage.getItem(k); } catch { return null; } },
     set(k, v) { try { localStorage.setItem(k, v); } catch { /* 무시 */ } },
     del(k) { try { localStorage.removeItem(k); } catch { /* 무시 */ } },
   };
+  const DRAW_LABEL = {
+    buyDraw: ['Buy Draw', '덱에서 1장 추가'],
+    buyFaceUp: ['Buy Face-Up', '공개 카드 추가'],
+    swapDraw: ['SWAP Draw', '덱에서 받고 1장 버림'],
+    swapFaceUp: ['SWAP Face-Up', '공개 카드와 교체'],
+    stand: ['Stand', '패스'],
+  };
+  const DIE = { circle: '●', square: '■', triangle: '▲', diamond: '◆', star: '✦', sylop: '⊕' };
 
   let ws = null;
   let state = null;
   let reconnectDelay = 500;
-  let dismissedResultRound = null;
+  let dismissedResult = null;
+  let mode = null; // 'swapFaceUp' 선택 중
 
   // ---------- 연결 ----------
   function connect() {
@@ -46,6 +54,7 @@
         break;
       case 'state':
         state = msg;
+        if (state.game.currentPlayerId !== state.you || state.game.phase !== 'draw') mode = null;
         render();
         break;
       case 'left':
@@ -54,6 +63,7 @@
         history.replaceState(null, '', location.pathname);
         show('home');
         $('roomBadge').classList.add('hidden');
+        $('resultModal').classList.add('hidden');
         break;
       case 'chat':
         addChat(msg);
@@ -66,7 +76,7 @@
     }
   }
 
-  // ---------- 화면 전환 ----------
+  // ---------- 화면 ----------
   function show(id) {
     for (const s of ['home', 'lobby', 'table']) $(s).classList.toggle('hidden', s !== id);
   }
@@ -75,10 +85,16 @@
     const g = state.game;
     $('roomBadge').textContent = `ROOM ${state.room}`;
     $('roomBadge').classList.remove('hidden');
+    fillRuleNumbers(g.rules);
     if (g.phase === 'lobby') { renderLobby(); show('lobby'); $('resultModal').classList.add('hidden'); return; }
     show('table');
     renderTable();
     renderResult();
+  }
+
+  function fillRuleNumbers(r) {
+    const map = { anteHand: r.anteHand, anteSabacc: r.anteSabacc, maxHand: r.maxHand, buyDraw: r.drawCosts.buyDraw, buyFaceUp: r.drawCosts.buyFaceUp };
+    document.querySelectorAll('[data-r]').forEach((el) => { el.textContent = map[el.dataset.r]; });
   }
 
   function renderLobby() {
@@ -95,7 +111,7 @@
     $('startBtn').classList.toggle('hidden', !isHost);
     $('startBtn').disabled = n < state.minPlayers;
     $('lobbyHint').textContent = n < state.minPlayers
-      ? `${state.minPlayers - n}명 더 필요합니다 (${n}/${state.maxPlayers}). 시작 칩 ${g.startChips}개.`
+      ? `${state.minPlayers - n}명 더 필요합니다 (${n}/${state.maxPlayers}). 시작 크레딧 ${g.startCredits}.`
       : isHost ? `${n}명 준비 완료. 시작하세요! (최대 ${state.maxPlayers}명)` : '방장이 시작하기를 기다리는 중…';
   }
 
@@ -103,96 +119,108 @@
     const g = state.game;
     const me = g.players.find((p) => p.id === state.you);
     const myTurn = g.currentPlayerId === state.you;
+    const cur = g.players.find((p) => p.id === g.currentPlayerId);
 
-    // 상태 표시
-    let status;
-    if (g.phase === 'turn') {
-      const cur = g.players.find((p) => p.id === g.currentPlayerId);
-      status = `${g.round}라운드 · 턴 ${g.turn}/${g.turnsPerRound} · ${myTurn ? '<b class="hl">당신의 차례</b>' : `${esc(cur.name)}의 차례`}`;
-    } else if (g.phase === 'impostor') status = `${g.round}라운드 · 공개 — 임포스터 주사위 선택 중`;
-    else if (g.phase === 'roundEnd') status = `${g.round}라운드 종료`;
-    else status = '게임 종료';
+    // 상태·단계
+    const phaseName = { draw: '드로우', betting: '베팅', handEnd: '핸드 종료', gameOver: '게임 종료' }[g.phase];
+    let status = `${g.handNo}번째 핸드 · ${g.round}/${g.roundsPerHand}라운드 · ${phaseName}`;
+    if (cur) status += ` · ${myTurn ? '<b class="hl">당신의 차례</b>' : `${esc(cur.name)}의 차례`}`;
     $('status').innerHTML = status + timerHtml();
+    const steps = ['draw', 'betting', 'spike'];
+    const activeStep = g.phase === 'draw' ? 0 : g.phase === 'betting' ? 1 : -1;
+    $('phases').innerHTML = steps.map((s, i) => `<span class="${i === activeStep ? 'on' : ''}">${i + 1}. ${['드로우', '베팅', '스파이크'][i]}</span>`).join('');
 
     // 상대
-    const order = rotateToMe(g.players);
-    $('opponents').innerHTML = order.filter((p) => p.id !== state.you).map((p) => {
+    $('opponents').innerHTML = rotateToMe(g.players).filter((p) => p.id !== state.you).map((p) => {
       const turn = p.id === g.currentPlayerId;
       const off = !state.connected.includes(p.id);
-      const hand = p.hand
-        ? `${cardHtml(p.hand.sand, p.impostor.sand, 'sm')}${cardHtml(p.hand.blood, p.impostor.blood, 'sm')}`
-        : p.hasHand ? `${backHtml('sand', 'sm')}${backHtml('blood', 'sm')}` : '';
-      const pending = p.pending ? `<div class="drawing">${SUIT_NAME[p.pending.suit]} 카드 고민 중…</div>` : '';
-      return `<div class="opp ${turn ? 'turn' : ''} ${p.eliminated ? 'out' : ''}">
+      let body;
+      if (p.eliminated) body = '<span class="muted">탈락</span>';
+      else if (p.folded) body = '<span class="muted">폴드</span>';
+      else body = Array.from({ length: p.cardCount }, () => backHtml('sm')).join('') + (p.pending ? backHtml('sm pending') : '');
+      return `<div class="opp ${turn ? 'turn' : ''} ${p.eliminated || p.folded ? 'out' : ''}">
         <div class="opp-head">${avatar(p.name)}<span class="nm">${esc(p.name)}</span>${p.id === g.dealerId ? '<em class="tag">딜러</em>' : ''}${off ? '<em class="tag off">오프라인</em>' : ''}</div>
-        <div class="opp-hand">${p.eliminated ? '<span class="muted">탈락</span>' : hand}</div>
-        ${pending}
-        <div class="chips">${chipsHtml(p.chips)} <span>${p.chips}</span>${p.invested ? `<span class="inv">+${p.invested} 베팅</span>` : ''}</div>
+        <div class="opp-hand">${body}</div>
+        <div class="credits">${coins(p.credits)}<b>${p.credits}</b>${p.roundBet ? `<span class="inv">베팅 ${p.roundBet}</span>` : ''}</div>
       </div>`;
     }).join('');
 
-    // 더미
-    $('sandDeckCount').textContent = `${g.decks.sand}장`;
-    $('bloodDeckCount').textContent = `${g.decks.blood}장`;
-    $('sandDiscard').innerHTML = g.discardTop.sand ? cardHtml(g.discardTop.sand) : '<span class="pile-label">비어 있음</span>';
-    $('bloodDiscard').innerHTML = g.discardTop.blood ? cardHtml(g.discardTop.blood) : '<span class="pile-label">비어 있음</span>';
-    const pot = g.players.reduce((a, p) => a + p.invested, 0);
-    $('pot').innerHTML = `<div class="pot-label">팟</div><div class="pot-val">${pot}</div>`;
-    const canDraw = myTurn && me && !me.pending && me.chips > 0;
-    document.querySelectorAll('.pile').forEach((el) => {
-      const empty = el.dataset.from === 'discard' ? !g.discardTop[el.dataset.suit] : false;
-      el.disabled = !canDraw || empty;
-      el.classList.toggle('active', canDraw && !empty);
-    });
-
-    // 내 정보
-    if (!me) return;
-    $('myInfo').innerHTML = `${avatar(me.name)}<b>${esc(me.name)}</b>
-      <span class="chips">${chipsHtml(me.chips)} ${me.chips}칩</span>
-      ${me.invested ? `<span class="inv">이번 라운드 베팅 ${me.invested}</span>` : ''}
-      ${me.eliminated ? '<em class="tag off">탈락 — 관전 중</em>' : ''}
-      ${me.hand && !me.eliminated ? `<span class="hint">${handHint(me)}</span>` : ''}`;
-
-    // 내 손패
-    if (me.hand && !me.eliminated) {
-      if (me.pending) {
-        const s = me.pending.suit;
-        const other = s === 'sand' ? 'blood' : 'sand';
-        $('myHand').innerHTML = `
-          <div class="keep-choice">
-            <button class="keep" data-keep="hand">${cardHtml(me.hand[s])}<span>이 카드 유지</span></button>
-            <button class="keep" data-keep="drawn">${cardHtml(me.pending, null, 'new')}<span>새 카드로 교체</span></button>
-          </div>
-          <div class="fixed">${cardHtml(me.hand[other])}</div>`;
-      } else {
-        $('myHand').innerHTML = `${cardHtml(me.hand.sand, me.impostor.sand)}${cardHtml(me.hand.blood, me.impostor.blood)}`;
-      }
+    // 중앙
+    $('deckPile').innerHTML = `${backHtml()}<span class="count">${g.deckCount}</span>`;
+    $('faceUpPile').innerHTML = g.faceUp ? cardHtml(g.faceUp) : '<div class="card empty"></div>';
+    $('handPot').innerHTML = `${coins(g.pots.hand)}<b>${g.pots.hand}</b>`;
+    $('sabaccPot').innerHTML = `${coins(g.pots.sabacc)}<b>${g.pots.sabacc}</b>`;
+    if (g.lastDice) {
+      $('dice').innerHTML = g.lastDice.faces.map((f) => `<span class="die ${g.lastDice.shift ? 'match' : ''}">${DIE[f]}</span>`).join('');
+      $('diceCap').textContent = g.lastDice.shift ? `${g.lastDice.round}R 사박 시프트!` : `${g.lastDice.round}R 결과`;
     } else {
-      $('myHand').innerHTML = '';
+      $('dice').innerHTML = '<span class="die idle">?</span><span class="die idle">?</span>';
+      $('diceCap').textContent = '스파이크 주사위';
     }
 
-    // 행동 버튼
+    if (!me) return;
+    // 내 정보
+    const ev = me.evaluation;
+    $('myInfo').innerHTML = `${avatar(me.name)}<b>${esc(me.name)}</b>
+      <span class="credits">${coins(me.credits)}<b>${me.credits}</b> 크레딧</span>
+      ${me.roundBet ? `<span class="inv">이번 라운드 베팅 ${me.roundBet}</span>` : ''}
+      ${me.eliminated ? '<em class="tag off">탈락 — 관전 중</em>' : ''}
+      ${me.folded ? '<em class="tag off">폴드</em>' : ''}
+      ${ev && !me.eliminated ? `<span class="hint">합계 ${ev.total > 0 ? '+' : ''}${ev.total} · ${esc(ev.name)}</span>` : ''}`;
+
+    // 내 손패
+    const selectable = myTurn && g.phase === 'draw' && (mode === 'swapFaceUp' || me.pending);
+    let handHtml = (me.hand || []).map((c) => (selectable
+      ? `<button class="pick" data-card="${c.id}">${cardHtml(c)}</button>`
+      : cardHtml(c))).join('');
+    if (me.pending) {
+      handHtml += `<div class="pending-wrap"><span class="new-tag">새 카드</span><button class="pick" data-card="${me.pending.id}">${cardHtml(me.pending, 'new')}</button></div>`;
+    }
+    $('myHand').innerHTML = me.eliminated ? '' : handHtml;
+
+    // 행동
     let actions = '';
-    if (g.phase === 'turn' && myTurn) {
-      if (me.pending) actions = '<p class="muted">남길 카드를 선택하세요. 나머지는 버림 더미로 갑니다.</p>';
-      else actions = `<button id="standBtn" class="primary">스탠드 (패스)</button>
-        <p class="muted">${me.chips > 0 ? '또는 위의 덱/버림 더미를 눌러 1칩으로 드로우' : '칩이 없어 스탠드만 가능합니다.'}</p>`;
-    } else if (g.phase === 'impostor') {
-      for (const s of ['sand', 'blood']) {
-        const imp = me.impostor && me.impostor[s];
-        if (imp && imp.value == null) {
-          actions += `<div class="dice-choice"><span>${SUIT_NAME[s]} 임포스터 값 선택:</span>
-            ${imp.dice.map((d, i) => `<button class="die" data-suit="${s}" data-die="${i}">${dieFace(d)}<b>${d}</b></button>`).join('')}</div>`;
-        }
+    if (myTurn && g.phase === 'draw') {
+      if (me.pending) actions = '<p class="muted">버릴 카드를 한 장 누르세요 (새 카드 포함).</p>';
+      else if (mode === 'swapFaceUp') actions = '<p class="muted">공개 카드와 바꿀 손패를 누르세요.</p><button data-act="cancelMode" class="ghost">취소</button>';
+      else {
+        const c = g.rules.drawCosts;
+        const full = me.hand.length >= g.rules.maxHand;
+        const btn = (a, disabled) => `<button class="draw-btn" data-draw="${a}" ${disabled ? 'disabled' : ''}>
+            <b>${DRAW_LABEL[a][0]}</b><small>${DRAW_LABEL[a][1]}${c[a] ? ` · ${c[a]}크레딧` : ''}</small></button>`;
+        actions = `<div class="draw-grid">
+          ${btn('buyDraw', full || me.credits < c.buyDraw)}
+          ${btn('buyFaceUp', full || !g.faceUp || me.credits < c.buyFaceUp)}
+          ${btn('swapDraw', me.credits < c.swapDraw)}
+          ${btn('swapFaceUp', !g.faceUp || me.credits < c.swapFaceUp)}
+          ${btn('stand', false)}
+        </div>`;
       }
-      if (!actions) actions = '<p class="muted">다른 플레이어의 주사위 선택을 기다리는 중…</p>';
-    } else if (g.phase === 'roundEnd' || g.phase === 'gameOver') {
-      actions = `${g.phase === 'roundEnd' ? '<button id="nextRoundBarBtn" class="primary">다음 라운드</button>' : ''}
-        <button id="showResultBtn" class="ghost">결과 보기</button>`;
+    } else if (myTurn && g.phase === 'betting') {
+      const b = g.betting;
+      const owe = b.current - me.roundBet;
+      const min = b.current + 1;
+      const canRaise = min <= b.cap;
+      const input = canRaise ? `<input id="betAmount" type="number" min="${min}" max="${b.cap}" value="${min}" />` : '';
+      if (owe <= 0) {
+        actions = `<div class="bet-row">
+          <button data-bet="check">체크</button>
+          ${canRaise ? `${input}<button data-bet="bet" class="primary">베팅</button>` : ''}
+          <button data-bet="fold" class="ghost">폴드</button></div>`;
+      } else {
+        actions = `<div class="bet-row">
+          <button data-bet="call" class="primary">콜 (${owe})</button>
+          ${canRaise ? `${input}<button data-bet="raise">레이즈</button>` : ''}
+          <button data-bet="fold" class="ghost">폴드</button></div>`;
+      }
+      actions += `<p class="muted">현재 베팅 ${b.current} · 이번 라운드 한도 ${b.cap}</p>`;
+    } else if (g.phase === 'handEnd') {
+      actions = '<button data-act="nextHand" class="primary">다음 핸드</button><button data-act="showResult" class="ghost">결과 보기</button>';
+    } else if (g.phase === 'gameOver') {
+      actions = '<button data-act="showResult" class="ghost">결과 보기</button>';
     }
     $('actions').innerHTML = actions;
 
-    // 로그
     $('log').innerHTML = g.log.map((l) => `<li>${esc(l)}</li>`).join('');
     $('log').scrollTop = $('log').scrollHeight;
   }
@@ -200,61 +228,59 @@
   function renderResult() {
     const g = state.game;
     const r = g.lastResult;
-    const open = (g.phase === 'roundEnd' || g.phase === 'gameOver') && r && dismissedResultRound !== `${g.round}-${g.phase}`;
+    const tag = `${g.handNo}-${g.phase}`;
+    const open = (g.phase === 'handEnd' || g.phase === 'gameOver') && r && dismissedResult !== tag;
     $('resultModal').classList.toggle('hidden', !open);
     if (!open) return;
     const winner = g.players.find((p) => p.id === g.winnerId);
-    $('resultTitle').textContent = g.phase === 'gameOver'
-      ? `🏆 최종 승자: ${winner ? winner.name : '없음'}`
-      : `${r.round}라운드 결과`;
+    $('resultTitle').textContent = g.phase === 'gameOver' ? `🏆 최종 승자: ${winner ? winner.name : '없음'}` : `${r.handNo}번째 핸드 결과`;
+    $('resultSub').textContent = r.byFold
+      ? `나머지 전원 폴드 — 핸드 팟 ${r.handPot} 획득, 사박 팟 ${r.carried} 이월`
+      : `핸드 팟 ${r.handPot}${r.sabaccPot ? ` + 사박 팟 ${r.sabaccPot}` : ` · 사박 팟 ${r.carried} 이월`}${r.blindDraws ? ' · 동률로 싱글 블라인드 드로우 진행' : ''}`;
     $('resultRows').innerHTML = r.rows.map((row) => `
-      <tr class="${row.winner ? 'win' : ''}">
-        <td>${esc(row.name)}${row.id === state.you ? ' (나)' : ''}</td>
-        <td><div class="mini">${cardHtml(row.hand.sand, row.impostor.sand, 'xs')}${cardHtml(row.hand.blood, row.impostor.blood, 'xs')}</div><small>${esc(row.evaluation.label)}</small></td>
-        <td>${row.winner ? `승리${row.refund ? ` · ${row.refund}칩 회수` : ''}` : `패배 · 베팅 ${row.lostInvested} 손실 · 벌금 ${row.penalty}`}</td>
-        <td>${row.chips}${row.chips === 0 ? ' <em class="tag off">탈락</em>' : ''}</td>
-      </tr>`).join('');
-    const isHost = state.hostId === state.you;
+      <div class="res ${row.winner ? 'win' : ''}">
+        <div class="res-name">${esc(row.name)}${row.id === state.you ? ' (나)' : ''}${row.winner ? ' <em class="tag">승리</em>' : ''}</div>
+        <div class="res-hand">${row.hand ? row.hand.map((c) => cardHtml(c, 'xs')).join('') : `<span class="muted">${row.folded ? '폴드' : '—'}</span>`}</div>
+        <div class="res-eval">${row.evaluation ? esc(row.evaluation.label) : ''}</div>
+        <div class="res-cr">${row.won ? `+${row.won} · ` : ''}${row.credits} 크레딧${row.credits < g.rules.anteHand + g.rules.anteSabacc ? ' <em class="tag off">탈락</em>' : ''}</div>
+      </div>`).join('');
     let btns = '';
-    if (g.phase === 'roundEnd') btns = '<button id="nextRoundBtn" class="primary">다음 라운드</button>';
-    else if (isHost) btns = '<button id="rematchBtn" class="primary">다시 하기</button><button id="leaveBtn2" class="ghost">나가기</button>';
-    else btns = '<span class="muted">방장이 재경기를 시작할 수 있습니다.</span><button id="leaveBtn2" class="ghost">나가기</button>';
-    btns += '<button id="closeResultBtn" class="ghost">테이블 보기</button>';
+    if (g.phase === 'handEnd') btns = '<button data-act="nextHand" class="primary">다음 핸드</button>';
+    else if (state.hostId === state.you) btns = '<button data-act="rematch" class="primary">다시 하기</button><button data-act="leave" class="ghost">나가기</button>';
+    else btns = '<span class="muted">방장이 재경기를 시작할 수 있습니다.</span><button data-act="leave" class="ghost">나가기</button>';
+    btns += '<button data-act="closeResult" class="ghost">테이블 보기</button>';
     $('resultActions').innerHTML = btns;
   }
 
-  // ---------- 보조 렌더 ----------
-  function cardHtml(card, imp, size = '') {
+  // ---------- 카드·칩 렌더 ----------
+  const SHAPE = { circle: 'c', square: 's', triangle: 't' };
+  function cardHtml(card, extra = '') {
     if (!card) return '';
-    let face;
-    if (card.kind === 'number') face = `<span class="val">${card.value}</span>${pips(card.value)}`;
-    else if (card.kind === 'sylop') face = '<span class="val sym">◎</span><span class="kind">사일롭</span>';
-    else {
-      const v = imp && imp.value != null ? `<span class="imp-val">= ${imp.value}</span>` : '';
-      face = `<span class="val sym">Ψ</span><span class="kind">임포스터</span>${v}`;
+    if (card.sylop) {
+      return `<div class="card sylop ${extra}"><span class="band"></span><span class="sylop-mark">⊕</span><span class="num">0</span><span class="band"></span></div>`;
     }
-    return `<div class="card ${card.suit} ${card.kind} ${size}">${face}</div>`;
+    const n = Math.abs(card.value);
+    const sign = card.value > 0 ? 'pos' : 'neg';
+    const face = n <= 6
+      ? `<span class="pips p${n}">${`<i class="${SHAPE[card.stave]}"></i>`.repeat(n)}</span>`
+      : `<span class="orn">${['✶', '✺', '❖', '✹'][n - 7]}</span>`;
+    return `<div class="card ${sign} ${extra}" title="${card.value > 0 ? '+' : ''}${card.value}">
+      <span class="band"></span>${face}<span class="num">${card.value > 0 ? '+' : '−'}${n}</span><span class="band"></span></div>`;
   }
-  function backHtml(suit, size = '') { return `<div class="card back ${suit} ${size}"></div>`; }
-  function pips(n) { return `<span class="pips">${'<i></i>'.repeat(n)}</span>`; }
-  function dieFace(n) { return ['', '⚀', '⚁', '⚂', '⚃', '⚄', '⚅'][n]; }
-  function chipsHtml(n) { return `<span class="chip-stack">${'<i></i>'.repeat(Math.min(n, 10))}</span>`; }
+  function backHtml(extra = '') { return `<div class="card back ${extra}"></div>`; }
+  function coins(n) {
+    const tens = Math.floor(n / 10); const fives = Math.floor((n % 10) / 5); const ones = n % 5;
+    const chip = (cls, k) => `<i class="coin ${cls}"></i>`.repeat(Math.min(k, 4));
+    return `<span class="coins">${chip('c10', tens)}${chip('c5', fives)}${chip('c1', ones)}</span>`;
+  }
   function avatar(name) {
-    let h = 0; for (const c of name) h = (h * 31 + c.charCodeAt(0)) % 360;
+    let h = 0; for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) % 360;
     return `<span class="avatar" style="--h:${h}">${esc([...name][0] || '?')}</span>`;
   }
-  function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+  function esc(s) { return String(s).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch])); }
   function rotateToMe(players) {
     const i = players.findIndex((p) => p.id === state.you);
     return i < 0 ? players : [...players.slice(i + 1), ...players.slice(0, i + 1)];
-  }
-  function handHint(me) {
-    const { sand, blood } = me.hand;
-    if (sand.kind === 'sylop' && blood.kind === 'sylop') return '퓨어 사박!';
-    if (sand.kind === 'sylop' || blood.kind === 'sylop') return '사일롭 사박 확정';
-    if (sand.kind === 'impostor' || blood.kind === 'impostor') return '임포스터: 공개 시 주사위로 결정';
-    const d = Math.abs(sand.value - blood.value);
-    return d === 0 ? `사박 (${sand.value}/${blood.value})` : `현재 차이 ${d}`;
   }
   function timerHtml() {
     if (!state.deadline) return '';
@@ -295,7 +321,7 @@
 
   $('createBtn').onclick = () => {
     const name = getName(); if (!name) return;
-    sendMsg({ type: 'create', name, startChips: Number($('chipsInput').value) });
+    sendMsg({ type: 'create', name, startCredits: Number($('creditsInput').value) });
   };
   $('joinBtn').onclick = () => {
     const name = getName(); if (!name) return;
@@ -315,23 +341,28 @@
     if (e.target === $('rulesModal') || e.target.dataset.close != null) $('rulesModal').classList.add('hidden');
   });
 
-  document.querySelectorAll('.pile').forEach((el) => {
-    el.onclick = () => sendMsg({ type: 'draw', suit: el.dataset.suit, from: el.dataset.from });
-  });
-
   document.addEventListener('click', (e) => {
     const t = e.target.closest('button');
-    if (!t) return;
-    if (t.id === 'standBtn') sendMsg({ type: 'stand' });
-    else if (t.dataset.keep) sendMsg({ type: 'keep', which: t.dataset.keep });
-    else if (t.classList.contains('die')) sendMsg({ type: 'impostor', suit: t.dataset.suit, die: Number(t.dataset.die) });
-    else if (t.id === 'nextRoundBtn' || t.id === 'nextRoundBarBtn') sendMsg({ type: 'nextRound' });
-    else if (t.id === 'rematchBtn') sendMsg({ type: 'rematch' });
-    else if (t.id === 'leaveBtn2') sendMsg({ type: 'leave' });
-    else if (t.id === 'showResultBtn') { dismissedResultRound = null; renderResult(); }
-    else if (t.id === 'closeResultBtn') {
-      dismissedResultRound = `${state.game.round}-${state.game.phase}`;
-      $('resultModal').classList.add('hidden');
+    if (!t || !state) return;
+    const g = state.game;
+    if (t.dataset.draw) {
+      if (t.dataset.draw === 'swapFaceUp') { mode = 'swapFaceUp'; renderTable(); return; }
+      sendMsg({ type: 'draw', action: t.dataset.draw });
+    } else if (t.dataset.card) {
+      const me = g.players.find((p) => p.id === state.you);
+      if (me.pending) sendMsg({ type: 'discardPending', cardId: t.dataset.card });
+      else if (mode === 'swapFaceUp') { sendMsg({ type: 'draw', action: 'swapFaceUp', cardId: t.dataset.card }); mode = null; }
+    } else if (t.dataset.bet) {
+      const amount = $('betAmount') ? Number($('betAmount').value) : undefined;
+      sendMsg({ type: 'bet', action: t.dataset.bet, amount });
+    } else if (t.dataset.act) {
+      const a = t.dataset.act;
+      if (a === 'nextHand') sendMsg({ type: 'nextHand' });
+      else if (a === 'rematch') sendMsg({ type: 'rematch' });
+      else if (a === 'leave') sendMsg({ type: 'leave' });
+      else if (a === 'cancelMode') { mode = null; renderTable(); }
+      else if (a === 'showResult') { dismissedResult = null; renderResult(); }
+      else if (a === 'closeResult') { dismissedResult = `${g.handNo}-${g.phase}`; $('resultModal').classList.add('hidden'); }
     }
   });
 

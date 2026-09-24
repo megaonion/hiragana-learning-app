@@ -1,24 +1,41 @@
 'use strict';
 
-// Kessel Sabacc 규칙 상수 및 순수 함수 (상태 없음)
+// Corellian Spike 사박 규칙 상수 및 순수 함수 (상태 없음)
+// ※ 표시된 [가정] 값은 룰북 원문 확인 후 조정 대상
 
-const SUITS = ['sand', 'blood'];
-const TURNS_PER_ROUND = 3;
-const DRAW_COST = 1;
-const SABACC_LOSS_PENALTY = 1;
+const STAVES = ['circle', 'square', 'triangle'];
+const ROUNDS_PER_HAND = 3;
 const MIN_PLAYERS = 3;
 const MAX_PLAYERS = 6;
-const DEFAULT_START_CHIPS = 8;
+const START_HAND_SIZE = 2;
+const MAX_HAND_SIZE = 5; // [가정] 5장 족보(풀 사박·플릿·라이렛·지 위즈)까지만 허용
+const ANTE_HAND_POT = 2; // 핸드 팟 참가비
+const ANTE_SABACC_POT = 1; // 사박 팟 참가비
+const DEFAULT_START_CREDITS = 50; // [가정]
 
-// 한 벌(22장): 1~6 각 3장, 임포스터 3장, 사일롭 1장
-function buildDeck(suit) {
+// 드로우 페이즈 행동별 비용(핸드 팟으로) [가정]
+const DRAW_COSTS = {
+  buyDraw: 1, // 덱 맨 위 카드를 손패에 추가
+  buyFaceUp: 1, // 공개 카드(버림 더미 맨 위)를 손패에 추가
+  swapDraw: 0, // 덱 맨 위 카드를 받고 손패 1장 버림
+  swapFaceUp: 0, // 공개 카드와 손패 1장 교체
+  stand: 0,
+};
+
+// 스파이크 주사위 6면 (같은 문양 = 사박 시프트)
+const DICE_FACES = ['circle', 'square', 'triangle', 'diamond', 'star', 'sylop'];
+
+// 62장: 3개 스테이브 × (+1~+10, −1~−10) + 사일롭 2장
+function buildDeck() {
   const cards = [];
-  let n = 0;
-  for (let v = 1; v <= 6; v++) {
-    for (let i = 0; i < 3; i++) cards.push({ id: `${suit}-${n++}`, suit, kind: 'number', value: v });
+  for (const stave of STAVES) {
+    for (let v = 1; v <= 10; v++) {
+      cards.push({ id: `${stave}+${v}`, stave, value: v, sylop: false });
+      cards.push({ id: `${stave}-${v}`, stave, value: -v, sylop: false });
+    }
   }
-  for (let i = 0; i < 3; i++) cards.push({ id: `${suit}-${n++}`, suit, kind: 'impostor', value: null });
-  cards.push({ id: `${suit}-${n++}`, suit, kind: 'sylop', value: 0 });
+  cards.push({ id: 'sylop-1', stave: null, value: 0, sylop: true });
+  cards.push({ id: 'sylop-2', stave: null, value: 0, sylop: true });
   return cards;
 }
 
@@ -30,54 +47,107 @@ function shuffle(arr, rng = Math.random) {
   return arr;
 }
 
-// 임포스터 값(impostorValues: { sand, blood })을 반영해 최종 핸드 평가
+// 족보 (강한 순). 1~11번은 합계 0(사박)일 때만 성립
+const HANDS = [
+  { key: 'pure', name: '퓨어 사박', en: 'Pure Sabacc' },
+  { key: 'full', name: '풀 사박', en: 'Full Sabacc' },
+  { key: 'fleet', name: '플릿', en: 'Fleet' },
+  { key: 'yeehaa', name: '이-하', en: 'Yee-Haa' },
+  { key: 'rhylet', name: '라일렛', en: 'Rhylet' },
+  { key: 'squadron', name: '스쿼드런', en: 'Squadron' },
+  { key: 'geewhiz', name: '지 위즈', en: 'Gee Whiz' },
+  { key: 'khyron', name: '스트레이트 카이론', en: 'Straight Khyron' },
+  { key: 'bantha', name: '밴서스 와일드', en: "Bantha's Wild" },
+  { key: 'ruleOfTwo', name: '룰 오브 투', en: 'Rule of Two' },
+  { key: 'sabacc', name: '사박', en: 'Sabacc' },
+  { key: 'nulrhek', name: '널렉', en: 'Nulrhek' },
+];
+const HAND_INDEX = Object.fromEntries(HANDS.map((h, i) => [h.key, i]));
+
+function sumOf(cards) {
+  return cards.reduce((a, c) => a + c.value, 0);
+}
+
+function classify(cards) {
+  const n = cards.length;
+  const sylops = cards.filter((c) => c.sylop).length;
+  const nums = cards.filter((c) => !c.sylop);
+  const total = sumOf(cards);
+  if (total !== 0) return 'nulrhek';
+  if (n === 2 && sylops === 2) return 'pure';
+
+  const counts = new Map();
+  for (const c of nums) counts.set(Math.abs(c.value), (counts.get(Math.abs(c.value)) || 0) + 1);
+  const kinds = [...counts.values()].sort((a, b) => b - a);
+  const pairs = kinds.filter((k) => k >= 2).length;
+  const four = kinds[0] >= 4;
+  const three = kinds[0] >= 3;
+
+  const vals = nums.map((c) => c.value).sort((a, b) => a - b);
+  if (n === 5 && sylops === 1 && vals.join() === '-10,-10,10,10') return 'full';
+  if (n === 5 && sylops === 1 && four) return 'fleet';
+  if (sylops >= 1 && pairs >= 1) return 'yeehaa';
+  if (three && kinds.length >= 2 && kinds[1] >= 2) return 'rhylet';
+  if (four) return 'squadron';
+  if (n === 5 && sylops === 0 && isGeeWhiz(vals)) return 'geewhiz';
+  if (hasRunOfFour([...counts.keys()])) return 'khyron';
+  if (three) return 'bantha';
+  if (pairs >= 2) return 'ruleOfTwo';
+  return 'sabacc';
+}
+
+function isGeeWhiz(sorted) {
+  return sorted.join() === '-10,1,2,3,4' || sorted.join() === '-4,-3,-2,-1,10';
+}
+
+function hasRunOfFour(absValues) {
+  const set = new Set(absValues);
+  for (const v of set) if (set.has(v + 1) && set.has(v + 2) && set.has(v + 3)) return true;
+  return false;
+}
+
 // rank 배열은 사전식 비교, 낮을수록 강함
-function evaluateHand(hand, impostorValues = {}) {
-  const resolve = (card) => (card.kind === 'impostor' ? impostorValues[card.suit] : card.value);
-  const { sand, blood } = hand;
-
-  if (sand.kind === 'sylop' && blood.kind === 'sylop') {
-    return { type: 'pure', sand: 0, blood: 0, diff: 0, rank: [0, 0, 0], label: '퓨어 사박' };
-  }
-
-  let s = resolve(sand);
-  let b = resolve(blood);
-  if (s == null || b == null) throw new Error('Impostor value not chosen');
-  // 사일롭은 다른 카드의 값을 따름
-  if (sand.kind === 'sylop') s = b;
-  if (blood.kind === 'sylop') b = s;
-
-  if (s === b) {
-    const label = s === 1 ? '프라임 사박 (1/1)' : `사박 (${s}/${s})`;
-    return { type: 'sabacc', sand: s, blood: b, diff: 0, rank: [1, s, 0], label };
-  }
-  const diff = Math.abs(s - b);
-  return { type: 'none', sand: s, blood: b, diff, rank: [2, diff, s + b], label: `차이 ${diff} (${s}/${b})` };
+// 동률 판정: 카드 수 많은 쪽 → 양수 카드 합 높은 쪽 → 가장 높은 양수 카드
+// 널렉은 먼저 0에 가까운 쪽 → 양수 합계가 음수 합계보다 우선
+function evaluateHand(cards) {
+  const key = classify(cards);
+  const total = sumOf(cards);
+  const pos = cards.filter((c) => c.value > 0);
+  const posSum = sumOf(pos);
+  const maxPos = pos.length ? Math.max(...pos.map((c) => c.value)) : 0;
+  const tail = [-cards.length, -posSum, -maxPos];
+  const rank = key === 'nulrhek'
+    ? [HAND_INDEX.nulrhek, Math.abs(total), total > 0 ? 0 : 1, ...tail]
+    : [HAND_INDEX[key], 0, 0, ...tail];
+  const hand = HANDS[HAND_INDEX[key]];
+  const label = key === 'nulrhek' ? `${hand.name} (합계 ${total > 0 ? '+' : ''}${total})` : hand.name;
+  return { key, name: hand.name, en: hand.en, total, rank, label, zero: total === 0 };
 }
 
 function compareRank(a, b) {
   for (let i = 0; i < Math.max(a.length, b.length); i++) {
-    if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) - (b[i] ?? 0);
+    const d = (a[i] ?? 0) - (b[i] ?? 0);
+    if (d !== 0) return d;
   }
   return 0;
 }
 
-// 패배 시 벌금: 사박이면 1칩, 아니면 두 카드 차이만큼
-function penaltyFor(evaluation) {
-  return evaluation.type === 'none' ? evaluation.diff : SABACC_LOSS_PENALTY;
-}
-
 module.exports = {
-  SUITS,
-  TURNS_PER_ROUND,
-  DRAW_COST,
-  SABACC_LOSS_PENALTY,
+  STAVES,
+  ROUNDS_PER_HAND,
   MIN_PLAYERS,
   MAX_PLAYERS,
-  DEFAULT_START_CHIPS,
+  START_HAND_SIZE,
+  MAX_HAND_SIZE,
+  ANTE_HAND_POT,
+  ANTE_SABACC_POT,
+  DEFAULT_START_CREDITS,
+  DRAW_COSTS,
+  DICE_FACES,
+  HANDS,
   buildDeck,
   shuffle,
   evaluateHand,
   compareRank,
-  penaltyFor,
+  sumOf,
 };

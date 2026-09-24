@@ -3,28 +3,29 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Kessel Sabacc</title>
+  <title>Corellian Spike Sabacc</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <header class="topbar">
-    <div class="brand">KESSEL <span>SABACC</span></div>
+    <div class="brand"><small>SABACC · CORELLIAN SPIKE</small><div>은하계 외곽 <span>카드게임</span></div></div>
     <div class="top-actions">
       <span id="roomBadge" class="room-badge hidden"></span>
-      <button id="rulesBtn" class="ghost">룰 보기</button>
+      <button id="rulesBtn" class="ghost">룰북</button>
     </div>
   </header>
 
   <!-- 홈 -->
   <main id="home" class="screen">
     <section class="panel home-panel">
-      <h1>카지노 테이블에 앉기</h1>
-      <p class="muted">3~6명이 함께하는 실시간 Kessel Sabacc. 방을 만들고 코드를 친구에게 공유하세요.</p>
+      <p class="eyebrow">THE CORELLIAN SPIKE HANDBOOK</p>
+      <h1>모든 패의 합이<br />0을 향하는 순간.</h1>
+      <p class="muted">3~6명이 함께하는 실시간 코렐리안 스파이크 사박. 방을 만들고 코드를 공유하세요.</p>
       <label>닉네임<input id="nameInput" maxlength="16" placeholder="예: 한 솔로" /></label>
       <div class="home-grid">
         <div class="box">
           <h2>새 방 만들기</h2>
-          <label>시작 칩<input id="chipsInput" type="number" min="2" max="20" value="8" /></label>
+          <label>시작 크레딧<input id="creditsInput" type="number" min="10" max="500" value="50" /></label>
           <button id="createBtn" class="primary">방 만들기</button>
         </div>
         <div class="box">
@@ -56,18 +57,17 @@
     <div class="table-layout">
       <section class="felt">
         <div id="status" class="status"></div>
+        <div id="phases" class="phases"></div>
         <div id="opponents" class="opponents"></div>
 
         <div class="center">
-          <div class="pile-group sand">
-            <button class="pile deck" data-suit="sand" data-from="deck"><span class="pile-label">샌드 덱</span><span class="count" id="sandDeckCount"></span></button>
-            <button class="pile discard" data-suit="sand" data-from="discard" id="sandDiscard"></button>
+          <div class="pile-wrap"><div id="deckPile"></div><span class="cap">드로우 더미</span></div>
+          <div class="pile-wrap"><div id="faceUpPile"></div><span class="cap">공개 카드</span></div>
+          <div class="pots">
+            <div class="pot"><span class="pot-label">핸드 팟</span><span id="handPot" class="pot-val"></span></div>
+            <div class="pot sabacc"><span class="pot-label">사박 팟</span><span id="sabaccPot" class="pot-val"></span></div>
           </div>
-          <div class="pot" id="pot"></div>
-          <div class="pile-group blood">
-            <button class="pile discard" data-suit="blood" data-from="discard" id="bloodDiscard"></button>
-            <button class="pile deck" data-suit="blood" data-from="deck"><span class="pile-label">블러드 덱</span><span class="count" id="bloodDeckCount"></span></button>
-          </div>
+          <div class="pile-wrap"><div id="dice" class="dice"></div><span class="cap" id="diceCap">스파이크 주사위</span></div>
         </div>
 
         <div class="me">
@@ -95,45 +95,53 @@
   <div id="resultModal" class="modal hidden">
     <div class="modal-body">
       <h2 id="resultTitle"></h2>
-      <table class="result-table"><thead><tr><th>플레이어</th><th>핸드</th><th>결과</th><th>칩</th></tr></thead><tbody id="resultRows"></tbody></table>
+      <p id="resultSub" class="muted"></p>
+      <div id="resultRows" class="result-rows"></div>
       <div class="row" id="resultActions"></div>
     </div>
   </div>
 
-  <!-- 룰 -->
+  <!-- 룰북 -->
   <div id="rulesModal" class="modal hidden">
     <div class="modal-body rules">
       <button class="close" data-close>&times;</button>
-      <h2>Kessel Sabacc 규칙</h2>
+      <h2>코렐리안 스파이크 룰 요약</h2>
       <h3>구성</h3>
       <ul>
-        <li><b class="sand-t">샌드</b>·<b class="blood-t">블러드</b> 두 벌, 각 22장: 숫자 1~6 × 3장, 임포스터 3장, 사일롭 1장</li>
-        <li>각자 샌드 1장 + 블러드 1장을 손에 듭니다.</li>
+        <li>카드 62장: 원·사각·삼각 3개 스테이브 × (초록 +1~+10, 빨강 −1~−10) + 사일롭(0) 2장</li>
+        <li>스파이크 주사위 2개, 크레딧 칩(1·5·10)</li>
       </ul>
       <h3>목표</h3>
-      <p>두 카드의 값을 최대한 <b>같게</b> 만드는 것. 두 값이 같으면 <b>사박</b>.</p>
+      <p>손패 합계를 <b>0</b>에 가깝게. 정확히 0이면 <b>사박</b>.</p>
       <h3>진행</h3>
       <ul>
-        <li>한 라운드는 3턴. 자기 차례에 <b>스탠드</b>(무료) 또는 <b>드로우</b>(1칩)를 선택합니다.</li>
-        <li>드로우: 샌드/블러드 덱 또는 버림 더미 중 한 곳에서 1장을 가져온 뒤, 같은 계열 카드 중 하나를 버립니다.</li>
-        <li>3턴 뒤 모두 카드를 공개합니다.</li>
-      </ul>
-      <h3>특수 카드</h3>
-      <ul>
-        <li><b>임포스터</b>: 공개 시 주사위 2개를 굴려 그중 하나를 카드 값으로 선택.</li>
-        <li><b>사일롭</b>: 다른 카드와 같은 값이 됨(= 사박). 사일롭 2장은 <b>퓨어 사박</b>.</li>
+        <li>핸드 시작 시 참가비: 핸드 팟 <span data-r="anteHand"></span> + 사박 팟 <span data-r="anteSabacc"></span>. 2장씩 받고 1장을 공개합니다.</li>
+        <li>3라운드 동안 매 라운드 <b>드로우 → 베팅 → 스파이크</b> 순서로 진행합니다.</li>
+        <li><b>드로우</b>(한 가지 선택): Buy Draw(덱에서 1장 추가, <span data-r="buyDraw"></span>크레딧) · Buy Face-Up(공개 카드 추가, <span data-r="buyFaceUp"></span>크레딧) · SWAP Draw(덱에서 1장 받고 1장 버림) · SWAP Face-Up(공개 카드와 1장 교체) · Stand. 손패는 최대 <span data-r="maxHand"></span>장.</li>
+        <li><b>베팅</b>: 체크·베팅·콜·레이즈·폴드. 한 라운드 베팅 한도는 남은 플레이어 중 가장 적은 보유 크레딧.</li>
+        <li><b>스파이크</b>: 주사위 2개가 같은 문양이면 <b>사박 시프트</b>, 모두 손패를 버리고 같은 장수만큼 새로 받습니다.</li>
       </ul>
       <h3>족보 (강한 순)</h3>
-      <ol>
-        <li>퓨어 사박 (사일롭 + 사일롭)</li>
-        <li>사박 1/1 (프라임) → 2/2 → … → 6/6 (낮은 숫자일수록 강함)</li>
-        <li>사박이 아니면 차이가 작을수록 강함, 차이가 같으면 합이 작은 쪽</li>
+      <ol class="hands">
+        <li><b>퓨어 사박</b> 사일롭 2장</li>
+        <li><b>풀 사박</b> +10 +10 −10 −10 + 사일롭</li>
+        <li><b>플릿</b> 포카드 + 사일롭</li>
+        <li><b>이-하</b> 페어 + 사일롭</li>
+        <li><b>라일렛</b> 트리플 + 페어</li>
+        <li><b>스쿼드런</b> 포카드</li>
+        <li><b>지 위즈</b> ±10과 반대 부호 1·2·3·4</li>
+        <li><b>스트레이트 카이론</b> 연속된 4개 숫자</li>
+        <li><b>밴서스 와일드</b> 트리플</li>
+        <li><b>룰 오브 투</b> 투 페어</li>
+        <li><b>사박</b> 그 밖의 합계 0</li>
+        <li><b>널렉</b> 합계가 0이 아님: 0에 가까울수록, 같으면 양수 우선</li>
       </ol>
+      <p class="muted small">사일롭·널렉 제외 족보는 합계 0일 때만 인정. 숫자 비교는 부호 무관(+5와 −5는 같은 숫자). 동률은 카드 수 → 양수 합 → 가장 높은 양수 카드 순, 그래도 같으면 싱글 블라인드 드로우.</p>
       <h3>정산</h3>
       <ul>
-        <li>승자(동점 포함)는 이번 라운드에 드로우로 쓴 칩을 돌려받습니다.</li>
-        <li>패자는 쓴 칩을 잃고, 추가 벌금: 사박이면 1칩, 아니면 두 카드의 차이만큼.</li>
-        <li>칩이 0이 되면 탈락. 마지막까지 칩을 가진 한 명이 최종 승자.</li>
+        <li>최고 족보가 핸드 팟 획득. 합계 0이면 사박 팟까지 획득, 아니면 사박 팟은 다음 핸드로 이월.</li>
+        <li>한 명 빼고 모두 폴드하면 남은 사람이 핸드 팟 획득.</li>
+        <li>다음 핸드 참가비를 낼 수 없으면 탈락, 마지막 1명이 최종 승자.</li>
       </ul>
     </div>
   </div>

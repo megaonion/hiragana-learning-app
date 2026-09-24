@@ -41,10 +41,10 @@ function newRoomCode() {
   return code;
 }
 
-function createRoom(startChips) {
+function createRoom(startCredits) {
   const code = newRoomCode();
   const room = {
-    code, hostId: null, game: new Game({ startChips }),
+    code, hostId: null, game: new Game({ startCredits }),
     sockets: new Map(), tokens: new Map(), timer: null, deadline: null, lastActive: Date.now(),
   };
   rooms.set(code, room);
@@ -76,8 +76,8 @@ function scheduleTimer(room) {
   room.deadline = null;
   const g = room.game;
   let waitingIds = [];
-  if (g.phase === 'turn') waitingIds = [g.currentPlayerId()];
-  else if (g.phase === 'impostor') waitingIds = [...new Set(g.pendingImpostors().map((x) => x.id))];
+  const cur = g.currentPlayerId();
+  if (cur) waitingIds = [cur];
   if (!waitingIds.length) return;
   const allOffline = waitingIds.every((id) => !room.sockets.has(id));
   const secs = allOffline ? DISCONNECTED_TURN_SECONDS : TURN_SECONDS;
@@ -124,8 +124,8 @@ wss.on('connection', (ws) => {
         case 'create': {
           if (room) throw new GameError('이미 방에 있습니다.');
           const name = cleanName(msg.name);
-          const chips = Math.min(20, Math.max(2, Number(msg.startChips) || R.DEFAULT_START_CHIPS));
-          const r = createRoom(chips);
+          const credits = Math.min(500, Math.max(10, Math.floor(Number(msg.startCredits)) || R.DEFAULT_START_CREDITS));
+          const r = createRoom(credits);
           const pid = crypto.randomUUID();
           const token = crypto.randomUUID();
           r.game.addPlayer(pid, name);
@@ -174,23 +174,21 @@ wss.on('connection', (ws) => {
           break;
         }
         case 'draw':
-          requireRoom(); room.game.draw(playerId, { suit: msg.suit, from: msg.from }); broadcast(room); break;
-        case 'keep':
-          requireRoom(); room.game.keep(playerId, msg.which); broadcast(room); break;
-        case 'stand':
-          requireRoom(); room.game.stand(playerId); broadcast(room); break;
-        case 'impostor':
-          requireRoom(); room.game.chooseImpostor(playerId, msg.suit, Number(msg.die)); broadcast(room); break;
-        case 'nextRound':
+          requireRoom(); room.game.drawAction(playerId, msg.action, msg.cardId); broadcast(room); break;
+        case 'discardPending':
+          requireRoom(); room.game.discardPending(playerId, msg.cardId); broadcast(room); break;
+        case 'bet':
+          requireRoom(); room.game.betAction(playerId, msg.action, msg.amount); broadcast(room); break;
+        case 'nextHand':
           requireRoom();
-          if (room.game.phase !== 'roundEnd') return; // 다른 사람이 먼저 누른 경우
-          room.game.nextRound(); broadcast(room); break;
+          if (room.game.phase !== 'handEnd') return; // 다른 사람이 먼저 누른 경우
+          room.game.nextHand(); broadcast(room); break;
         case 'rematch': {
           requireRoom();
           if (room.game.phase !== 'gameOver') throw new GameError('게임이 아직 끝나지 않았습니다.');
           if (room.hostId !== playerId) throw new GameError('방장만 다시 시작할 수 있습니다.');
           const old = room.game;
-          room.game = new Game({ startChips: old.startChips });
+          room.game = new Game({ startCredits: old.startCredits });
           for (const p of old.players) room.game.addPlayer(p.id, p.name);
           broadcast(room);
           break;
