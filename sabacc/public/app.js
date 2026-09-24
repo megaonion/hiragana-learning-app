@@ -371,5 +371,8 @@
     $('chatInput').value = '';
   };
 
+  // 하트비트: 무료 호스팅이 대화 중인 게임을 유휴 상태로 보고 잠들지 않도록
+  setInterval(() => { if (ws && ws.readyState === WebSocket.OPEN) ws.send('{"type":"ping"}'); }, 25 * 1000);
+
   connect();
 })();

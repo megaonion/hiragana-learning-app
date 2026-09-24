@@ -115,6 +115,8 @@ const wss = new WebSocketServer({ server, path: '/ws' });
 wss.on('connection', (ws) => {
   let room = null;
   let playerId = null;
+  ws.isAlive = true;
+  ws.on('pong', () => { ws.isAlive = true; });
 
   const attach = (r, pid, token) => {
     room = r; playerId = pid;
@@ -228,6 +230,15 @@ wss.on('connection', (ws) => {
     if (!room) throw new GameError('방에 먼저 참가하세요.');
   }
 });
+
+// 끊긴 연결 정리: 30초마다 ping, 응답 없으면 종료 (호스팅 프록시의 유휴 연결 끊김 방지)
+setInterval(() => {
+  for (const ws of wss.clients) {
+    if (!ws.isAlive) { ws.terminate(); continue; }
+    ws.isAlive = false;
+    ws.ping();
+  }
+}, 30 * 1000).unref();
 
 // 오래 비어 있는 방 정리 (30분)
 setInterval(() => {

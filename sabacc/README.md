@@ -32,6 +32,22 @@
 - 포트 변경: `PORT=4000 npm start`, 턴 제한시간 변경: `TURN_SECONDS=90 npm start`
 - 규칙 테스트: `npm test`
 
+## 인터넷에 배포하기 (Render 무료)
+
+멀리 있는 친구와도 링크 하나로 플레이할 수 있도록 Render에 올리는 방법. 저장소 루트의 `render.yaml`에 설정이 들어 있음.
+
+1. https://render.com 가입 (GitHub 계정으로 로그인)
+2. 대시보드 **New → Blueprint** 선택 → GitHub 연결 후 `megaonion/hiragana-learning-app` 선택
+3. 브랜치 `claude/sabacc-web-game-jizlvd` 선택 → `render.yaml`을 읽어 `sabacc` 서비스가 표시되면 **Apply**
+4. 빌드가 끝나면 `https://sabacc-xxxx.onrender.com` 주소가 생김 → 이 주소로 방을 만들고 초대 링크 공유
+
+Blueprint가 안 보이면 **New → Web Service**로 직접 입력: 브랜치 `claude/sabacc-web-game-jizlvd`, Root Directory `sabacc`, Build Command `npm install --omit=dev`, Start Command `npm start`, Instance Type `Free`.
+
+무료 플랜 참고
+- 15분 동안 접속이 없으면 서버가 잠들고, 다음 접속 때 깨어나느라 첫 로딩이 느림
+- 서버가 잠들거나 다시 배포되면 진행 중인 방은 사라짐 (게임 중에는 접속 유지 신호를 보내 잠들지 않음)
+- 브랜치에 새 커밋이 올라오면 자동으로 다시 배포됨
+
 ## 기능
 
 - 방 만들기 / 4자리 코드·초대 링크로 참가 (3~6명), 방장이 시작 크레딧 설정(10~500)

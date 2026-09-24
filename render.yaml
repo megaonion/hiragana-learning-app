@@ -1,0 +1,15 @@
+# Render Blueprint: 사박(코렐리안 스파이크) 멀티플레이 서버
+services:
+  - type: web
+    name: sabacc
+    runtime: node
+    plan: free
+    rootDir: sabacc
+    branch: claude/sabacc-web-game-jizlvd
+    buildCommand: npm install --omit=dev
+    startCommand: npm start
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: TURN_SECONDS
+        value: "60"
