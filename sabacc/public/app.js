@@ -330,7 +330,10 @@
   $('startBtn').onclick = () => sendMsg({ type: 'start' });
   $('leaveBtn').onclick = () => sendMsg({ type: 'leave' });
   $('copyLinkBtn').onclick = async () => {
-    const link = `${location.origin}${location.pathname}?room=${state.room}`;
+    // localhost로 연 경우 친구가 들어올 수 있도록 같은 Wi-Fi 주소로 안내
+    const local = ['localhost', '127.0.0.1', '::1', '[::1]'].includes(location.hostname);
+    const base = local && state.lanUrls && state.lanUrls.length ? state.lanUrls[0] : location.origin;
+    const link = `${base}${location.pathname}?room=${state.room}`;
     try { await navigator.clipboard.writeText(link); toast('초대 링크를 복사했습니다.'); } catch { toast(link); }
   };
   $('rulesBtn').onclick = () => $('rulesModal').classList.remove('hidden');

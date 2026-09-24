@@ -2,18 +2,35 @@
 
 3~6명이 실시간으로 함께하는 코렐리안 스파이크(Corellian Spike) 사박 웹게임. Node.js + WebSocket 기반, 서버가 게임 상태를 관리하는 구조(다른 플레이어 손패는 공개 전까지 서버 밖으로 전송하지 않음).
 
-## 실행
+## 내 컴퓨터에서 실행하기
 
-```bash
-cd sabacc
-npm install
-npm start          # http://localhost:3000
-npm test           # 룰 엔진 테스트
-```
+### 1. 준비 (처음 한 번)
+1. [Node.js](https://nodejs.org) **LTS** 버전 설치
+2. 코드 받기: [ZIP 다운로드](https://github.com/megaonion/hiragana-learning-app/archive/refs/heads/claude/sabacc-web-game-jizlvd.zip) 후 압축 풀기
+   (또는 `git clone -b claude/sabacc-web-game-jizlvd https://github.com/megaonion/hiragana-learning-app.git`)
 
-환경 변수: `PORT` (기본 3000), `TURN_SECONDS` (턴 제한시간, 기본 60초).
+### 2. 실행
+- **Windows**: `sabacc` 폴더의 `start-windows.bat` 더블클릭
+- **Mac**: 터미널에서 아래 입력 (ZIP으로 받은 경우 `.command` 파일은 실행 권한이 없어 터미널이 가장 확실)
+  ```bash
+  cd 압축푼폴더/sabacc
+  npm install
+  npm start
+  ```
+  git으로 받았다면 `start-mac.command` 더블클릭도 가능
 
-외부 친구와 플레이하려면 Render·Fly.io·Railway 등 WebSocket을 지원하는 Node 호스팅에 배포 후 초대 링크 공유.
+처음 실행 때 필요한 파일을 자동 설치하고, 브라우저가 `http://localhost:3000`으로 열림.
+
+### 3. 친구와 함께 하기 (같은 Wi-Fi)
+- 서버 창에 표시되는 `같은 Wi-Fi 친구 접속: http://192.168.x.x:3000` 주소를 친구가 휴대폰·노트북 브라우저로 열기
+- 방을 만든 뒤 **초대 링크 복사** 버튼을 누르면 이 주소로 된 링크가 복사됨
+- 접속이 안 되면: Windows 방화벽 허용 창에서 "개인 네트워크" 허용, 회사·카페 Wi-Fi처럼 기기 간 통신을 막는 네트워크는 불가
+- 3~6명 모두 각자 기기로 접속 (한 컴퓨터에서 여러 탭으로 테스트하려면 탭마다 다른 브라우저나 시크릿 창 사용)
+
+### 기타
+- 종료: 서버 창에서 `Ctrl+C` (또는 창 닫기). 서버를 끄면 진행 중인 방은 사라짐
+- 포트 변경: `PORT=4000 npm start`, 턴 제한시간 변경: `TURN_SECONDS=90 npm start`
+- 규칙 테스트: `npm test`
 
 ## 기능
 

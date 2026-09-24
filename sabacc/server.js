@@ -4,6 +4,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const os = require('os');
 const { WebSocketServer } = require('ws');
 const { Game, GameError } = require('./src/game');
 const R = require('./src/rules');
@@ -27,6 +28,13 @@ const server = http.createServer((req, res) => {
     res.end(data);
   });
 });
+
+// 같은 Wi-Fi(공유기)에 연결된 친구가 접속할 주소
+function lanUrls() {
+  return Object.values(os.networkInterfaces()).flat()
+    .filter((n) => n && n.family === 'IPv4' && !n.internal)
+    .map((n) => `http://${n.address}:${PORT}`);
+}
 
 // ---------- 방 관리 ----------
 // room: { code, hostId, game, sockets: Map<playerId, ws>, tokens: Map<token, playerId>, timer, deadline }
@@ -64,6 +72,7 @@ function broadcast(room) {
       deadline: room.deadline,
       minPlayers: R.MIN_PLAYERS,
       maxPlayers: R.MAX_PLAYERS,
+      lanUrls: lanUrls(),
       game: room.game.viewFor(pid),
     });
   }
@@ -232,7 +241,15 @@ setInterval(() => {
 }, 60 * 1000).unref();
 
 if (require.main === module) {
-  server.listen(PORT, () => console.log(`Sabacc server listening on http://localhost:${PORT}`));
+  server.listen(PORT, () => {
+    const lan = lanUrls();
+    console.log('');
+    console.log('  사박 서버가 켜졌습니다.');
+    console.log(`  내 컴퓨터에서 접속:   http://localhost:${PORT}`);
+    for (const url of lan) console.log(`  같은 Wi-Fi 친구 접속: ${url}`);
+    console.log('  종료하려면 이 창에서 Ctrl+C');
+    console.log('');
+  });
 }
 
 module.exports = { server, rooms };
