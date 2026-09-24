@@ -29,7 +29,7 @@ function allStand(g) {
 }
 // 베팅 페이즈 전원 체크
 function allCheck(g) {
-  while (g.phase === 'betting') g.betAction(g.currentPlayerId(), 'check');
+  while (g.phase === 'betting') g.betAction(g.currentPlayerId(), 'stand');
 }
 // 주사위를 항상 다른 문양으로 (시프트 없음)
 function noShift(g) {
@@ -66,6 +66,25 @@ test('족보 판정: 각 족보 예시', () => {
   assert.equal(key(2, 2, -5, -5, 6), 'ruleOfTwo');
   assert.equal(key(7, -7), 'sabacc');
   assert.equal(key(5, -2), 'nulrhek');
+});
+
+test('룰북 족보 페이지의 카드 예시', () => {
+  assert.equal(key(0, 0), 'pure');
+  assert.equal(key(10, 10, 0, -10, -10), 'full');
+  assert.equal(key(-4, -4, 0, 4, 4), 'fleet');
+  assert.equal(key(-2, 0, 2), 'yeehaa');
+  assert.equal(key(2, 2, 2, -3, -3), 'rhylet');
+  assert.equal(key(-5, -5, 5, 5), 'squadron');
+  assert.equal(key(1, 2, 3, 4, -10), 'geewhiz');
+  assert.equal(key(-5, 6, 7, -8), 'khyron');
+  assert.equal(key(4, 4, 4, -3, -9), 'bantha');
+  assert.equal(key(3, 3, -5, 5, -6), 'ruleOfTwo');
+  assert.equal(key(3, 3, -6), 'sabacc');
+  const ev = (...v) => R.evaluateHand(H(...v)).rank;
+  assert.ok(R.compareRank(ev(2, 8, -3, -7), ev(1, 6, -2, -5)) < 0, '양수 합이 큰 사박');
+  assert.ok(R.compareRank(ev(3, -2), ev(2, -3)) < 0, '양수 널렉');
+  assert.ok(R.compareRank(ev(2, -1), ev(4, -1)) < 0, '0에 가까운 널렉');
+  assert.ok(R.compareRank(ev(1), ev(-1)) < 0, '싱글 블라인드 드로우: +1 > -1');
 });
 
 test('족보 순서: 퓨어 > 풀 > 플릿 > 이-하 > 라일렛 > 스쿼드런 > 지 위즈 > 카이론 > 밴서스 > 룰 오브 투 > 사박 > 널렉', () => {
@@ -109,37 +128,50 @@ test('핸드 시작: 참가비(핸드 팟 2 + 사박 팟 1), 각자 2장, 공개
     assert.equal(p.hand.length, 2);
     assert.equal(p.credits, 47);
   }
-  assert.equal(g.discard.length, 1);
+  assert.ok(g.faceUp);
+  assert.equal(g.discard.length, 0);
   assert.equal(g.deck.length, 62 - 8 - 1);
   assert.equal(g.phase, 'draw');
 });
 
-test('드로우 4종: Buy Draw/Face-Up은 장수 +1·비용, SWAP은 장수 유지', () => {
+test('드로우: Buy Draw 1크레딧·Buy Face-Up 2크레딧(장수 +1), SWAP은 먼저 버리고 교환(무료)', () => {
   const g = newGame(3);
   let id = g.currentPlayerId();
   let p = g.get(id);
-  const before = p.credits;
+  let before = p.credits;
   g.drawAction(id, 'buyDraw');
   assert.equal(p.hand.length, 3);
-  assert.equal(p.credits, before - R.DRAW_COSTS.buyDraw);
+  assert.equal(p.credits, before - 1);
 
-  id = g.currentPlayerId(); p = g.get(id);
-  const top = g.discard.at(-1);
+  id = g.currentPlayerId(); p = g.get(id); before = p.credits;
+  const up = g.faceUp;
+  g.drawAction(id, 'buyFaceUp');
+  assert.equal(p.credits, before - 2);
+  assert.ok(p.hand.includes(up));
+  assert.ok(g.faceUp && g.faceUp !== up, '공개 카드는 드로우 더미에서 다시 채워짐');
+
+  id = g.currentPlayerId(); p = g.get(id); before = p.credits;
+  const up2 = g.faceUp;
   const out = p.hand[0];
+  assert.throws(() => g.drawAction(id, 'swapFaceUp'), GameError);
   g.drawAction(id, 'swapFaceUp', out.id);
   assert.equal(p.hand.length, 2);
-  assert.ok(p.hand.includes(top));
+  assert.equal(p.credits, before);
+  assert.ok(p.hand.includes(up2));
   assert.equal(g.discard.at(-1), out);
-
-  id = g.currentPlayerId(); p = g.get(id);
-  g.drawAction(id, 'swapDraw');
-  assert.ok(p.pending);
-  assert.throws(() => g.drawAction(id, 'stand'), GameError);
-  const drawn = p.pending;
-  g.discardPending(id, p.hand[1].id);
-  assert.equal(p.hand.length, 2);
-  assert.ok(p.hand.includes(drawn));
+  assert.notEqual(g.faceUp, out, '버린 카드는 공개 카드가 아닌 버린 카드 더미로');
   assert.equal(g.phase, 'betting');
+});
+
+test('SWAP Draw: 먼저 버린 카드 자리에 드로우 더미 맨 위 카드', () => {
+  const g = newGame(3);
+  const id = g.currentPlayerId();
+  const p = g.get(id);
+  const out = p.hand[1];
+  const top = g.deck.at(-1);
+  g.drawAction(id, 'swapDraw', out.id);
+  assert.equal(p.hand[1], top);
+  assert.equal(g.discard.at(-1), out);
 });
 
 test('손패 최대 장수 초과 불가', () => {
@@ -149,13 +181,15 @@ test('손패 최대 장수 초과 불가', () => {
   assert.throws(() => g.drawAction(id, 'buyDraw'), GameError);
 });
 
-test('베팅: 체크 불가 시 콜/레이즈/폴드, 레이즈 후 다시 한 바퀴', () => {
+test('베팅: 레이즈는 2 이상, 레이즈가 있으면 스탠드 불가, 레이즈 후 다시 한 바퀴', () => {
   const g = newGame(3);
   allStand(g);
   const [a, b, c2] = g.betting.queue.map((id) => g.get(id));
   const pot = g.pots.hand;
-  g.betAction(a.id, 'bet', 3);
-  assert.throws(() => g.betAction(b.id, 'check'), GameError);
+  assert.throws(() => g.betAction(a.id, 'raise', 1), GameError);
+  g.betAction(a.id, 'raise', 3);
+  assert.throws(() => g.betAction(b.id, 'stand'), GameError);
+  assert.throws(() => g.betAction(b.id, 'raise', 4), GameError);
   g.betAction(b.id, 'raise', 5);
   g.betAction(c2.id, 'call');
   assert.equal(g.currentPlayerId(), a.id);
@@ -165,12 +199,71 @@ test('베팅: 체크 불가 시 콜/레이즈/폴드, 레이즈 후 다시 한 �
   assert.equal(g.round, 2);
 });
 
-test('베팅 한도 = 남은 플레이어 최소 보유 크레딧', () => {
+test('올인: 가진 만큼만 콜, 이후 베팅 차례에서 제외', () => {
   const g = newGame(3);
   allStand(g);
-  const cap = g.betting.cap;
-  const id = g.currentPlayerId();
-  assert.throws(() => g.betAction(id, 'bet', cap + 1), GameError);
+  const [a, b, c2] = g.betting.queue.map((id) => g.get(id));
+  b.credits = 4;
+  g.betAction(a.id, 'raise', 10);
+  g.betAction(b.id, 'call');
+  assert.equal(b.credits, 0);
+  assert.equal(b.roundBet, 4);
+  g.betAction(c2.id, 'call');
+  assert.equal(g.phase, 'draw');
+  allStand(g);
+  assert.ok(!g.betting.queue.includes(b.id));
+});
+
+test('사이드 팟: 올인한 사람은 자기가 낸 만큼까지만 가져감', () => {
+  const g = newGame(3, { startCredits: 50 });
+  const r = noShift(g);
+  const [a, b, c2] = g.order.map((id) => g.get(id));
+  a.hand = H(0, 0); // 최강
+  b.hand = H(3, -2);
+  c2.hand = H(9, -1);
+  allStand(g);
+  a.credits = 5;
+  g.betAction(a.id, 'raise', 5); // 올인
+  g.betAction(b.id, 'raise', 20);
+  g.betAction(c2.id, 'call');
+  // 베팅: a 5(올인), b·c 20. 메인 팟 = 참가비 6 + 5×3, 사이드 팟 = 15×2
+  for (let i = 0; i < 2; i++) { allStand(g); allCheck(g); }
+  r();
+  const res = g.lastResult;
+  assert.equal(res.pots[0].amount, 6 + 15);
+  assert.deepEqual(res.pots[0].winners, [a.name]);
+  assert.equal(res.pots[1].amount, 30);
+  assert.deepEqual(res.pots[1].winners, [b.name]);
+  assert.equal(res.rows.find((x) => x.id === a.id).won, 21 + res.sabaccPot);
+});
+
+test('드로우 비용은 사이드 팟을 만들지 않고 메인 팟에 포함', () => {
+  const g = newGame(3);
+  const r = noShift(g);
+  const [a, b, c2] = g.order.map((id) => g.get(id));
+  g.drawAction(a.id, 'buyDraw');
+  g.drawAction(b.id, 'buyFaceUp');
+  g.drawAction(c2.id, 'stand');
+  a.hand = H(5, -2); b.hand = H(6, -1); c2.hand = H(2, -2);
+  allCheck(g);
+  for (let i = 0; i < 2; i++) { allStand(g); allCheck(g); }
+  r();
+  const res = g.lastResult;
+  assert.equal(res.pots.length, 1);
+  assert.equal(res.pots[0].amount, 6 + 1 + 2);
+  assert.deepEqual(res.pots[0].winners, [c2.name]);
+});
+
+test('싱글 블라인드 드로우: 동률이면 한 장씩 뽑아 그 카드로 비교', () => {
+  const g = newGame(3);
+  const r = noShift(g);
+  const [a, b, c2] = g.order.map((id) => g.get(id));
+  a.hand = H(4, -4); b.hand = H(4, -4); c2.hand = H(9, -1);
+  for (let i = 0; i < 3; i++) { allStand(g); allCheck(g); }
+  r();
+  const res = g.lastResult;
+  assert.ok(res.blind.length >= 2);
+  assert.ok(res.blind.every((x) => x.id !== c2.id));
 });
 
 test('나머지 전원 폴드 시 핸드 팟만 획득, 사박 팟은 이월', () => {
@@ -254,14 +347,14 @@ test('다른 사람 손패는 숨김(장수만 공개)', () => {
   }
 });
 
-test('자동 행동: 드로우=스탠드, 베팅 중 콜 필요하면 폴드', () => {
+test('자동 행동: 드로우=스탠드, 베팅 중 레이즈가 있으면 폴드', () => {
   const g = newGame(3);
   const id = g.currentPlayerId();
   g.autoAct(id);
   assert.notEqual(g.currentPlayerId(), id);
   allStand(g);
   const [a, b] = g.betting.queue;
-  g.betAction(a, 'bet', 1);
+  g.betAction(a, 'raise', 2);
   g.autoAct(b);
   assert.ok(g.get(b).folded);
 });

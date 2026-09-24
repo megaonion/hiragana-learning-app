@@ -175,8 +175,6 @@ wss.on('connection', (ws) => {
         }
         case 'draw':
           requireRoom(); room.game.drawAction(playerId, msg.action, msg.cardId); broadcast(room); break;
-        case 'discardPending':
-          requireRoom(); room.game.discardPending(playerId, msg.cardId); broadcast(room); break;
         case 'bet':
           requireRoom(); room.game.betAction(playerId, msg.action, msg.amount); broadcast(room); break;
         case 'nextHand':

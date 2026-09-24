@@ -10,8 +10,8 @@
   const DRAW_LABEL = {
     buyDraw: ['Buy Draw', '덱에서 1장 추가'],
     buyFaceUp: ['Buy Face-Up', '공개 카드 추가'],
-    swapDraw: ['SWAP Draw', '덱에서 받고 1장 버림'],
-    swapFaceUp: ['SWAP Face-Up', '공개 카드와 교체'],
+    swapDraw: ['SWAP Draw', '1장 버리고 덱에서 교환'],
+    swapFaceUp: ['SWAP Face-Up', '1장 버리고 공개 카드와 교환'],
     stand: ['Stand', '패스'],
   };
   const DIE = { circle: '●', square: '■', triangle: '▲', diamond: '◆', star: '✦', sylop: '⊕' };
@@ -20,7 +20,7 @@
   let state = null;
   let reconnectDelay = 500;
   let dismissedResult = null;
-  let mode = null; // 'swapFaceUp' 선택 중
+  let mode = null; // 'swapDraw' | 'swapFaceUp': 버릴 카드 선택 중
 
   // ---------- 연결 ----------
   function connect() {
@@ -93,7 +93,7 @@
   }
 
   function fillRuleNumbers(r) {
-    const map = { anteHand: r.anteHand, anteSabacc: r.anteSabacc, maxHand: r.maxHand, buyDraw: r.drawCosts.buyDraw, buyFaceUp: r.drawCosts.buyFaceUp };
+    const map = { anteHand: r.anteHand, anteSabacc: r.anteSabacc, maxHand: r.maxHand, buyDraw: r.drawCosts.buyDraw, buyFaceUp: r.drawCosts.buyFaceUp, minRaise: r.minRaise };
     document.querySelectorAll('[data-r]').forEach((el) => { el.textContent = map[el.dataset.r]; });
   }
 
@@ -122,8 +122,8 @@
     const cur = g.players.find((p) => p.id === g.currentPlayerId);
 
     // 상태·단계
-    const phaseName = { draw: '드로우', betting: '베팅', handEnd: '핸드 종료', gameOver: '게임 종료' }[g.phase];
-    let status = `${g.handNo}번째 핸드 · ${g.round}/${g.roundsPerHand}라운드 · ${phaseName}`;
+    const phaseName = { draw: '드로우', betting: '베팅', handEnd: '게임 종료', gameOver: '매치 종료' }[g.phase];
+    let status = `${g.handNo}번째 게임 · ${g.round}/${g.roundsPerHand}라운드 · ${phaseName}`;
     if (cur) status += ` · ${myTurn ? '<b class="hl">당신의 차례</b>' : `${esc(cur.name)}의 차례`}`;
     $('status').innerHTML = status + timerHtml();
     const steps = ['draw', 'betting', 'spike'];
@@ -137,17 +137,18 @@
       let body;
       if (p.eliminated) body = '<span class="muted">탈락</span>';
       else if (p.folded) body = '<span class="muted">폴드</span>';
-      else body = Array.from({ length: p.cardCount }, () => backHtml('sm')).join('') + (p.pending ? backHtml('sm pending') : '');
+      else body = Array.from({ length: p.cardCount }, () => backHtml('sm')).join('');
       return `<div class="opp ${turn ? 'turn' : ''} ${p.eliminated || p.folded ? 'out' : ''}">
         <div class="opp-head">${avatar(p.name)}<span class="nm">${esc(p.name)}</span>${p.id === g.dealerId ? '<em class="tag">딜러</em>' : ''}${off ? '<em class="tag off">오프라인</em>' : ''}</div>
         <div class="opp-hand">${body}</div>
-        <div class="credits">${coins(p.credits)}<b>${p.credits}</b>${p.roundBet ? `<span class="inv">베팅 ${p.roundBet}</span>` : ''}</div>
+        <div class="credits">${coins(p.credits)}<b>${p.credits}</b>${p.roundBet ? `<span class="inv">베팅 ${p.roundBet}</span>` : ''}${p.allIn ? '<em class="tag">올인</em>' : ''}</div>
       </div>`;
     }).join('');
 
     // 중앙
     $('deckPile').innerHTML = `${backHtml()}<span class="count">${g.deckCount}</span>`;
     $('faceUpPile').innerHTML = g.faceUp ? cardHtml(g.faceUp) : '<div class="card empty"></div>';
+    $('discardPile').innerHTML = g.discardCount ? `${backHtml('discarded')}<span class="count">${g.discardCount}</span>` : '<div class="card empty"></div>';
     $('handPot').innerHTML = `${coins(g.pots.hand)}<b>${g.pots.hand}</b>`;
     $('sabaccPot').innerHTML = `${coins(g.pots.sabacc)}<b>${g.pots.sabacc}</b>`;
     if (g.lastDice) {
@@ -169,20 +170,19 @@
       ${ev && !me.eliminated ? `<span class="hint">합계 ${ev.total > 0 ? '+' : ''}${ev.total} · ${esc(ev.name)}</span>` : ''}`;
 
     // 내 손패
-    const selectable = myTurn && g.phase === 'draw' && (mode === 'swapFaceUp' || me.pending);
-    let handHtml = (me.hand || []).map((c) => (selectable
+    const selectable = myTurn && g.phase === 'draw' && mode;
+    const handHtml = (me.hand || []).map((c) => (selectable
       ? `<button class="pick" data-card="${c.id}">${cardHtml(c)}</button>`
       : cardHtml(c))).join('');
-    if (me.pending) {
-      handHtml += `<div class="pending-wrap"><span class="new-tag">새 카드</span><button class="pick" data-card="${me.pending.id}">${cardHtml(me.pending, 'new')}</button></div>`;
-    }
     $('myHand').innerHTML = me.eliminated ? '' : handHtml;
 
     // 행동
     let actions = '';
     if (myTurn && g.phase === 'draw') {
-      if (me.pending) actions = '<p class="muted">버릴 카드를 한 장 누르세요 (새 카드 포함).</p>';
-      else if (mode === 'swapFaceUp') actions = '<p class="muted">공개 카드와 바꿀 손패를 누르세요.</p><button data-act="cancelMode" class="ghost">취소</button>';
+      if (mode) {
+        actions = `<p class="muted">${DRAW_LABEL[mode][0]}: 먼저 버릴 손패를 누르세요. ${mode === 'swapDraw' ? '드로우 더미 맨 위 카드' : '공개 카드'}가 그 자리에 들어옵니다.</p>
+          <button data-act="cancelMode" class="ghost">취소</button>`;
+      }
       else {
         const c = g.rules.drawCosts;
         const full = me.hand.length >= g.rules.maxHand;
@@ -199,23 +199,19 @@
     } else if (myTurn && g.phase === 'betting') {
       const b = g.betting;
       const owe = b.current - me.roundBet;
-      const min = b.current + 1;
-      const canRaise = min <= b.cap;
-      const input = canRaise ? `<input id="betAmount" type="number" min="${min}" max="${b.cap}" value="${min}" />` : '';
-      if (owe <= 0) {
-        actions = `<div class="bet-row">
-          <button data-bet="check">체크</button>
-          ${canRaise ? `${input}<button data-bet="bet" class="primary">베팅</button>` : ''}
-          <button data-bet="fold" class="ghost">폴드</button></div>`;
-      } else {
-        actions = `<div class="bet-row">
-          <button data-bet="call" class="primary">콜 (${owe})</button>
-          ${canRaise ? `${input}<button data-bet="raise">레이즈</button>` : ''}
-          <button data-bet="fold" class="ghost">폴드</button></div>`;
-      }
-      actions += `<p class="muted">현재 베팅 ${b.current} · 이번 라운드 한도 ${b.cap}</p>`;
+      const max = me.roundBet + me.credits;
+      const min = Math.min(b.current + g.rules.minRaise, max);
+      const canRaise = max > b.current;
+      const raise = canRaise
+        ? `<input id="betAmount" type="number" min="${min}" max="${max}" value="${min}" /><button data-bet="raise">레이즈</button>`
+        : '';
+      actions = `<div class="bet-row">
+        ${owe <= 0 ? '<button data-bet="stand" class="primary">스탠드</button>' : `<button data-bet="call" class="primary">콜 ${Math.min(owe, me.credits)}${owe >= me.credits ? ' (올인)' : ''}</button>`}
+        ${raise}
+        <button data-bet="fold" class="ghost">폴드</button></div>
+        <p class="muted">현재 베팅 ${b.current} · 레이즈는 ${g.rules.minRaise} 이상 · 최대 ${max}${canRaise ? ' (최대 = 올인)' : ''}</p>`;
     } else if (g.phase === 'handEnd') {
-      actions = '<button data-act="nextHand" class="primary">다음 핸드</button><button data-act="showResult" class="ghost">결과 보기</button>';
+      actions = '<button data-act="nextHand" class="primary">다음 게임</button><button data-act="showResult" class="ghost">결과 보기</button>';
     } else if (g.phase === 'gameOver') {
       actions = '<button data-act="showResult" class="ghost">결과 보기</button>';
     }
@@ -233,10 +229,10 @@
     $('resultModal').classList.toggle('hidden', !open);
     if (!open) return;
     const winner = g.players.find((p) => p.id === g.winnerId);
-    $('resultTitle').textContent = g.phase === 'gameOver' ? `🏆 최종 승자: ${winner ? winner.name : '없음'}` : `${r.handNo}번째 핸드 결과`;
+    $('resultTitle').textContent = g.phase === 'gameOver' ? `🏆 최종 승자: ${winner ? winner.name : '없음'}` : `${r.handNo}번째 게임 결과`;
     $('resultSub').textContent = r.byFold
       ? `나머지 전원 폴드 — 핸드 팟 ${r.handPot} 획득, 사박 팟 ${r.carried} 이월`
-      : `핸드 팟 ${r.handPot}${r.sabaccPot ? ` + 사박 팟 ${r.sabaccPot}` : ` · 사박 팟 ${r.carried} 이월`}${r.blindDraws ? ' · 동률로 싱글 블라인드 드로우 진행' : ''}`;
+      : `핸드 팟 ${r.handPot}${r.sabaccPot ? ` + 사박 팟 ${r.sabaccPot}` : ` · 사박 팟 ${r.carried} 이월`}${r.blind && r.blind.length ? ' · 동률로 싱글 블라인드 드로우 진행' : ''}${r.pots && r.pots.length > 1 ? ` · 사이드 팟: ${r.pots.slice(1).map((x) => `${x.amount}→${x.winners.join(', ')}`).join(' / ')}` : ''}`;
     $('resultRows').innerHTML = r.rows.map((row) => `
       <div class="res ${row.winner ? 'win' : ''}">
         <div class="res-name">${esc(row.name)}${row.id === state.you ? ' (나)' : ''}${row.winner ? ' <em class="tag">승리</em>' : ''}</div>
@@ -245,7 +241,7 @@
         <div class="res-cr">${row.won ? `+${row.won} · ` : ''}${row.credits} 크레딧${row.credits < g.rules.anteHand + g.rules.anteSabacc ? ' <em class="tag off">탈락</em>' : ''}</div>
       </div>`).join('');
     let btns = '';
-    if (g.phase === 'handEnd') btns = '<button data-act="nextHand" class="primary">다음 핸드</button>';
+    if (g.phase === 'handEnd') btns = '<button data-act="nextHand" class="primary">다음 게임</button>';
     else if (state.hostId === state.you) btns = '<button data-act="rematch" class="primary">다시 하기</button><button data-act="leave" class="ghost">나가기</button>';
     else btns = '<span class="muted">방장이 재경기를 시작할 수 있습니다.</span><button data-act="leave" class="ghost">나가기</button>';
     btns += '<button data-act="closeResult" class="ghost">테이블 보기</button>';
@@ -346,12 +342,10 @@
     if (!t || !state) return;
     const g = state.game;
     if (t.dataset.draw) {
-      if (t.dataset.draw === 'swapFaceUp') { mode = 'swapFaceUp'; renderTable(); return; }
+      if (t.dataset.draw.startsWith('swap')) { mode = t.dataset.draw; renderTable(); return; }
       sendMsg({ type: 'draw', action: t.dataset.draw });
     } else if (t.dataset.card) {
-      const me = g.players.find((p) => p.id === state.you);
-      if (me.pending) sendMsg({ type: 'discardPending', cardId: t.dataset.card });
-      else if (mode === 'swapFaceUp') { sendMsg({ type: 'draw', action: 'swapFaceUp', cardId: t.dataset.card }); mode = null; }
+      if (mode) { sendMsg({ type: 'draw', action: mode, cardId: t.dataset.card }); mode = null; }
     } else if (t.dataset.bet) {
       const amount = $('betAmount') ? Number($('betAmount').value) : undefined;
       sendMsg({ type: 'bet', action: t.dataset.bet, amount });

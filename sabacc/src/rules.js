@@ -13,14 +13,15 @@ const ANTE_HAND_POT = 2; // 핸드 팟 참가비
 const ANTE_SABACC_POT = 1; // 사박 팟 참가비
 const DEFAULT_START_CREDITS = 50; // [가정]
 
-// 드로우 페이즈 행동별 비용(핸드 팟으로) [가정]
+// 드로우 페이즈 행동별 비용(핸드 팟으로) — 룰북 기준
 const DRAW_COSTS = {
-  buyDraw: 1, // 덱 맨 위 카드를 손패에 추가
-  buyFaceUp: 1, // 공개 카드(버림 더미 맨 위)를 손패에 추가
-  swapDraw: 0, // 덱 맨 위 카드를 받고 손패 1장 버림
-  swapFaceUp: 0, // 공개 카드와 손패 1장 교체
+  buyDraw: 1, // 드로우 더미 맨 위 카드를 손패에 추가
+  buyFaceUp: 2, // 공개 카드를 손패에 추가
+  swapDraw: 0, // 손패 1장을 먼저 버리고 드로우 더미 맨 위 카드와 교환
+  swapFaceUp: 0, // 손패 1장을 먼저 버리고 공개 카드와 교환
   stand: 0,
 };
+const MIN_RAISE = 2; // 레이즈는 2크레딧 이상
 
 // 스파이크 주사위 6면 (같은 문양 = 사박 시프트)
 const DICE_FACES = ['circle', 'square', 'triangle', 'diamond', 'star', 'sylop'];
@@ -143,6 +144,7 @@ module.exports = {
   ANTE_SABACC_POT,
   DEFAULT_START_CREDITS,
   DRAW_COSTS,
+  MIN_RAISE,
   DICE_FACES,
   HANDS,
   buildDeck,

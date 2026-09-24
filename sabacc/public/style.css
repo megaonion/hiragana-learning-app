@@ -234,3 +234,8 @@ label { display: block; font-size: .9rem; color: var(--muted); margin: 12px 0; }
   .res { grid-template-columns: 1fr 1fr; }
   .center { gap: 12px; }
 }
+
+/* 버린 카드 더미 */
+#discardPile { position: relative; }
+#discardPile .count { position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%); font-size: .72rem; background: #000b; padding: 1px 7px; border-radius: 99px; }
+.card.back.discarded { opacity: .55; }
