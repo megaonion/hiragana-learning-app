@@ -165,6 +165,7 @@
     $('myInfo').innerHTML = `${avatar(me.name)}<b>${esc(me.name)}</b>
       <span class="credits">${coins(me.credits)}<b>${me.credits}</b> 크레딧</span>
       ${me.roundBet ? `<span class="inv">이번 라운드 베팅 ${me.roundBet}</span>` : ''}
+      ${me.id === g.dealerId ? '<em class="tag">딜러</em>' : ''}
       ${me.eliminated ? '<em class="tag off">탈락 — 관전 중</em>' : ''}
       ${me.folded ? '<em class="tag off">폴드</em>' : ''}
       ${ev && !me.eliminated ? `<span class="hint">합계 ${ev.total > 0 ? '+' : ''}${ev.total} · ${esc(ev.name)}</span>` : ''}`;
@@ -231,8 +232,8 @@
     const winner = g.players.find((p) => p.id === g.winnerId);
     $('resultTitle').textContent = g.phase === 'gameOver' ? `🏆 최종 승자: ${winner ? winner.name : '없음'}` : `${r.handNo}번째 게임 결과`;
     $('resultSub').textContent = r.byFold
-      ? `나머지 전원 폴드 — 핸드 팟 ${r.handPot} 획득, 사박 팟 ${r.carried} 이월`
-      : `핸드 팟 ${r.handPot}${r.sabaccPot ? ` + 사박 팟 ${r.sabaccPot}` : ` · 사박 팟 ${r.carried} 이월`}${r.blind && r.blind.length ? ' · 동률로 싱글 블라인드 드로우 진행' : ''}${r.pots && r.pots.length > 1 ? ` · 사이드 팟: ${r.pots.slice(1).map((x) => `${x.amount}→${x.winners.join(', ')}`).join(' / ')}` : ''}`;
+      ? `나머지 전원 폴드 — 게임 팟 ${r.handPot} 획득, 사박 팟 ${r.carried} 이월`
+      : `게임 팟 ${r.handPot}${r.sabaccPot ? ` + 사박 팟 ${r.sabaccPot}` : ` · 사박 팟 ${r.carried} 이월`}${r.blind && r.blind.length ? ' · 동률로 싱글 블라인드 드로우 진행' : ''}${r.pots && r.pots.length > 1 ? ` · 사이드 팟: ${r.pots.slice(1).map((x) => `${x.amount}→${x.winners.join(', ')}`).join(' / ')}` : ''}`;
     $('resultRows').innerHTML = r.rows.map((row) => `
       <div class="res ${row.winner ? 'win' : ''}">
         <div class="res-name">${esc(row.name)}${row.id === state.you ? ' (나)' : ''}${row.winner ? ' <em class="tag">승리</em>' : ''}</div>

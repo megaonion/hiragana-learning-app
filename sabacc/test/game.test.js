@@ -112,6 +112,28 @@ test('널렉: 0에 가까울수록, 같으면 양수가 음수보다 우선', ()
   assert.ok(R.compareRank(ev(7, -3, -3), ev(3, -2)) < 0); // +1, 3장 vs 2장
 });
 
+test('룰북 승패: 절댓값 같으면 카드 수 많은 쪽, 그다음 양수가 음수보다 우선', () => {
+  const ev = (...v) => R.evaluateHand(H(...v)).rank;
+  assert.ok(R.compareRank(ev(1, 2, -4), ev(3, -2)) < 0, '−1(3장) > +1(2장)');
+  assert.ok(R.compareRank(ev(3, -2), ev(2, -3)) < 0, '+1 > −1 (같은 장수)');
+});
+
+test('딜러는 매 라운드 끝나면 왼쪽으로 넘어가고, 모든 단계는 딜러 왼쪽부터', () => {
+  const g = newGame(4);
+  const r = noShift(g);
+  const ids = g.players.map((p) => p.id);
+  for (let round = 1; round <= 3; round++) {
+    const dealer = g.dealerIdx;
+    assert.equal(g.round, round);
+    assert.equal(g.currentPlayerId(), ids[(dealer + 1) % 4], '드로우는 딜러 왼쪽부터');
+    allStand(g);
+    assert.equal(g.currentPlayerId(), ids[(dealer + 1) % 4], '베팅도 딜러 왼쪽부터');
+    allCheck(g);
+    assert.equal(g.dealerIdx, (dealer + 1) % 4, '라운드 후 딜러 이동');
+  }
+  r();
+});
+
 test('3~6명 제한', () => {
   const g = new Game();
   g.addPlayer('a', 'A'); g.addPlayer('b', 'B');
@@ -264,6 +286,7 @@ test('싱글 블라인드 드로우: 동률이면 한 장씩 뽑아 그 카드�
   const res = g.lastResult;
   assert.ok(res.blind.length >= 2);
   assert.ok(res.blind.every((x) => x.id !== c2.id));
+  assert.equal(res.rows.filter((x) => x.winner).length, 1, '서로 다른 값이 나올 때까지 뽑아 승자 1명');
 });
 
 test('나머지 전원 폴드 시 핸드 팟만 획득, 사박 팟은 이월', () => {

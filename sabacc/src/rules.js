@@ -109,7 +109,7 @@ function hasRunOfFour(absValues) {
 
 // rank 배열은 사전식 비교, 낮을수록 강함
 // 동률 판정: 카드 수 많은 쪽 → 양수 카드 합 높은 쪽 → 가장 높은 양수 카드
-// 널렉은 먼저 0에 가까운 쪽 → 양수 합계가 음수 합계보다 우선
+// 널렉은 0에 가까운 쪽 → 카드 수 많은 쪽 → 양수 합계가 음수 합계보다 우선 (룰북 '게임 승패')
 function evaluateHand(cards) {
   const key = classify(cards);
   const total = sumOf(cards);
@@ -118,7 +118,7 @@ function evaluateHand(cards) {
   const maxPos = pos.length ? Math.max(...pos.map((c) => c.value)) : 0;
   const tail = [-cards.length, -posSum, -maxPos];
   const rank = key === 'nulrhek'
-    ? [HAND_INDEX.nulrhek, Math.abs(total), total > 0 ? 0 : 1, ...tail]
+    ? [HAND_INDEX.nulrhek, Math.abs(total), -cards.length, total > 0 ? 0 : 1, -posSum, -maxPos]
     : [HAND_INDEX[key], 0, 0, ...tail];
   const hand = HANDS[HAND_INDEX[key]];
   const label = key === 'nulrhek' ? `${hand.name} (합계 ${total > 0 ? '+' : ''}${total})` : hand.name;

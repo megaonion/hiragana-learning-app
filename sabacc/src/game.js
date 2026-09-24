@@ -64,7 +64,7 @@ class Game {
     for (const p of this.players) {
       p.hand = []; p.folded = false; p.roundBet = 0; p.betTotal = 0;
     }
-    this.dealerIdx = this.nextActiveIndex(this.dealerIdx);
+    if (this.players[this.dealerIdx].eliminated) this.dealerIdx = this.nextActiveIndex(this.dealerIdx);
     for (const p of this.inHand()) {
       this.pay(p, R.ANTE_HAND_POT, 'hand');
       this.pay(p, R.ANTE_SABACC_POT, 'sabacc');
@@ -72,17 +72,19 @@ class Game {
     for (let i = 0; i < R.START_HAND_SIZE; i++) for (const p of this.inHand()) p.hand.push(this.drawCard());
     this.faceUp = this.drawCard();
 
+    this.addLog(`— ${this.handNo}번째 게임 · 참가비 게임 팟 ${R.ANTE_HAND_POT} + 사박 팟 ${R.ANTE_SABACC_POT} —`);
+    this.startDrawPhase();
+  }
+
+  // 모든 단계는 딜러 왼쪽 참가자부터
+  startDrawPhase() {
     const first = this.nextActiveIndex(this.dealerIdx);
     this.order = [];
     for (let i = 0; i < this.players.length; i++) {
       const p = this.players[(first + i) % this.players.length];
       if (!p.eliminated) this.order.push(p.id);
     }
-    this.addLog(`— ${this.handNo}번째 게임 (딜러: ${this.players[this.dealerIdx].name}) · 참가비 핸드 팟 ${R.ANTE_HAND_POT} + 사박 팟 ${R.ANTE_SABACC_POT} —`);
-    this.startDrawPhase();
-  }
-
-  startDrawPhase() {
+    this.addLog(`${this.round}라운드 (딜러: ${this.players[this.dealerIdx].name})`);
     this.phase = 'draw';
     this.drawPos = -1;
     this.advanceDraw();
@@ -279,6 +281,8 @@ class Game {
     } else {
       this.addLog(`🎲 ${this.round}라운드 스파이크: 다른 문양, 변화 없음`);
     }
+    // 한 라운드가 끝나면 딜러 왼쪽 참가자가 다음 딜러
+    this.dealerIdx = this.nextActiveIndex(this.dealerIdx);
     if (this.round >= R.ROUNDS_PER_HAND) {
       this.showdown();
     } else {
@@ -294,7 +298,8 @@ class Game {
     w.credits += handPot;
     this.pots.hand = 0;
     this.betting = null;
-    this.addLog(`${w.name}: 나머지 전원 폴드로 핸드 팟 ${handPot} 획득 (사박 팟은 이월)`);
+    this.dealerIdx = this.nextActiveIndex(this.dealerIdx);
+    this.addLog(`${w.name}: 나머지 전원 폴드로 게임 팟 ${handPot} 획득 (사박 팟은 이월)`);
     this.lastResult = {
       handNo: this.handNo, byFold: true, handPot, sabaccPot: 0, carried: this.pots.sabacc, pots: [],
       rows: [{ id: w.id, name: w.name, hand: null, evaluation: null, winner: true, won: handPot, folded: false, credits: w.credits }],
@@ -306,7 +311,7 @@ class Game {
   strengthKeys(live) {
     const keys = new Map(live.map((p) => [p.id, [...R.evaluateHand(p.hand).rank]]));
     const blind = [];
-    for (let t = 0; t < 5; t++) {
+    for (let t = 0; t < 30; t++) { // 서로 다른 값이 나올 때까지 (안전 상한 30회)
       const groups = new Map();
       for (const p of live) {
         const k = keys.get(p.id).join();
@@ -373,8 +378,8 @@ class Game {
 
     const winIds = new Set(mainWinners.map((w) => w.id));
     const names = mainWinners.map((w) => w.name).join(', ');
-    if (blind.length) this.addLog('동률 → 싱글 블라인드 드로우로 승자 결정');
-    this.addLog(`${names} 승리 — ${evals.get(mainWinners[0].id).label}. 핸드 팟 ${handPot}${zero ? ` + 사박 팟 ${sabaccPot}` : ' (사박 팟 이월)'}`);
+    if (blind.length) this.addLog(`동률 → 싱글 블라인드 드로우: ${blind.map((x) => `${x.name} ${fmt(x.card)}`).join(', ')}`);
+    this.addLog(`${names} 승리 — ${evals.get(mainWinners[0].id).label}. 게임 팟 ${handPot}${zero ? ` + 사박 팟 ${sabaccPot}` : ' (사박 팟 이월)'}`);
     this.lastResult = {
       handNo: this.handNo, byFold: false, handPot, sabaccPot, carried: this.pots.sabacc, blind, pots,
       rows: this.players.filter((p) => !p.eliminated).map((p) => ({
